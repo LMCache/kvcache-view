@@ -525,7 +525,11 @@
                     <h2>Multi-Head Hashing: Parallel Lookups & Collision Mitigation</h2>
                     <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem">
                         Engram uses 8 hash heads &times; 2 N-gram orders = 16 independent parallel lookups per token
-                        position.
+                        position
+                        <strong>per Engram layer</strong>
+                        . Engram-27B inserts Engram at layers [2, 15], so a full token pass performs
+                        <strong>32 lookups</strong>
+                        (16 &times; 2 layers).
                     </p>
 
                     <div class="grid-2-equal">
@@ -550,7 +554,7 @@
 
                             <div class="info-box green">
                                 <h4 style="color: var(--accent-green)">Why This Enables Parallelism</h4>
-                                <p>All 16 lookups are:</p>
+                                <p>All 16 lookups per layer are:</p>
                                 <ul>
                                     <li>
                                         <strong style="color: var(--accent-green)">Independent</strong>
@@ -568,7 +572,12 @@
                             </div>
 
                             <div class="info-box purple">
-                                <h4 style="color: var(--accent-purple)">Storage Implications</h4>
+                                <h4 style="color: var(--accent-purple)">
+                                    Storage Implications
+                                    <span class="estimate" style="font-weight: normal; font-size: 0.8rem">
+                                        *Projection
+                                    </span>
+                                </h4>
                                 <p>
                                     On
                                     <strong>GPU</strong>
@@ -576,11 +585,16 @@
                                     <br />
                                     On
                                     <strong>SSD</strong>
-                                    : 16 parallel io_uring submissions
+                                    : 16 parallel io_uring submissions per layer
                                     <br />
                                     On
                                     <strong>tiered storage</strong>
                                     : Some hit GPU, some DRAM, some SSD — all in parallel
+                                </p>
+                                <p style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted)">
+                                    Note: The paper only measures DRAM offload over PCIe. SSD tiering and io_uring are
+                                    projections. A naive per-head SSD read path would need batching, coalescing, and a
+                                    DRAM cache in front to amortize fine-grained access overhead.
                                 </p>
                             </div>
 
@@ -678,12 +692,41 @@
                             </div>
 
                             <div class="info-box purple">
-                                <h4 style="color: var(--accent-purple)">Measured Overhead</h4>
+                                <h4 style="color: var(--accent-purple)">Measured Overhead (DRAM over PCIe)</h4>
                                 <p>
                                     "Offloading a 100B-parameter embedding table incurs a negligible throughput penalty,
                                     peaking at only
                                     <strong style="color: var(--accent-cyan)">2.8%</strong>
                                     on the 8B backbone."
+                                </p>
+                                <p style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-secondary)">
+                                    Measured on H800 with 512 sequences: throughput drops from 6315 tok/s to 6140 tok/s.
+                                    This experiment forces all retrievals over PCIe from
+                                    <strong>host DRAM</strong>
+                                    — no NVMe experiment is shown in the paper.
+                                </p>
+                            </div>
+
+                            <div class="info-box cyan">
+                                <h4 style="color: var(--accent-cyan)">
+                                    Bandwidth Reality Check
+                                    <span class="estimate" style="font-weight: normal; font-size: 0.8rem">
+                                        *Projection
+                                    </span>
+                                </h4>
+                                <p style="font-size: 0.85rem">
+                                    Each Engram layer retrieves 16 chunks totaling 1280 values/token. At FP16 that is
+                                    ~2.56 KB/token/layer. At 6140 tok/s: ~15.7 MB/s per layer, ~31.4 MB/s for two
+                                    layers.
+                                </p>
+                                <p style="margin-top: 0.5rem; font-size: 0.85rem">
+                                    Even pessimistically assuming every lookup triggers a full 4 KB random read: ~98k
+                                    IOPS per layer, ~196k IOPS for two. Enterprise SSDs like the Micron 9550 (3.3M 4K
+                                    random-read IOPS) or Kioxia FL6 (1.5M IOPS, 29 &micro;s latency) handle this with
+                                    headroom — but the
+                                    <strong>software path</strong>
+                                    (batching, coalescing, avoiding CPU bounce buffers) remains the real engineering
+                                    challenge.
                                 </p>
                             </div>
                         </div>
@@ -706,8 +749,8 @@
                             >
                                 <p style="margin: 0 0 0.5rem 0; color: var(--text-secondary)">
                                     <strong style="color: var(--accent-cyan)">Key:</strong>
-                                    All 16 hash IDs are computed from input tokens alone — no dependency on hidden
-                                    states.
+                                    All 16 hash IDs per Engram layer are computed from input tokens alone — no
+                                    dependency on hidden states. Engram-27B uses 2 layers (32 total lookups per token).
                                 </p>
                                 <p style="margin: 0; color: var(--text-secondary)">
                                     This enables
@@ -1102,7 +1145,7 @@
                     ${hashBoxesTrigram}
 
                     <!-- Parallel arrows down -->
-                    <text x="225" y="328" text-anchor="middle" fill="#64ffda" font-size="10" font-weight="bold">16 PARALLEL LOOKUPS</text>
+                    <text x="225" y="328" text-anchor="middle" fill="#64ffda" font-size="10" font-weight="bold">16 PARALLEL LOOKUPS (per layer)</text>
                     <path d="M 130 310 L 130 355" stroke="#f472b6" stroke-width="2" stroke-dasharray="3,3"/>
                     <path d="M 320 310 L 320 355" stroke="#7c3aed" stroke-width="2" stroke-dasharray="3,3"/>
 
@@ -1350,7 +1393,7 @@
 
                     <!-- Lookup -->
                     <rect x="20" y="260" width="310" height="35" rx="6" fill="rgba(34, 197, 94, 0.1)" stroke="#22c55e"/>
-                    <text x="175" y="282" text-anchor="middle" fill="#22c55e" font-size="11">16 parallel O(1) lookups → embedding vectors</text>
+                    <text x="175" y="282" text-anchor="middle" fill="#22c55e" font-size="11">16 parallel O(1) lookups per layer → embedding vectors</text>
                 `
             }
 
