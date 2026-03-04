@@ -47,8 +47,8 @@ check-commits:
 		if ! echo "$$body" | grep -q "^Generated-by: Claude AI$$"; then \
 			errors="$$errors\n  ❌ Missing 'Generated-by: Claude AI' in body"; \
 		fi; \
-		if ! echo "$$body" | grep -q "^Signed-off-by: Luis Chamberlain <mcgrof@kernel.org>$$"; then \
-			errors="$$errors\n  ❌ Missing 'Signed-off-by: Luis Chamberlain <mcgrof@kernel.org>' in body"; \
+		if ! echo "$$body" | grep -q "^Signed-off-by: Luis Chamberlain <mcgrof@do-not-panic.com>$$"; then \
+			errors="$$errors\n  ❌ Missing 'Signed-off-by: Luis Chamberlain <mcgrof@do-not-panic.com>' in body"; \
 		fi; \
 		if echo "$$body" | grep -q "Co-Authored-By:"; then \
 			errors="$$errors\n  ❌ Contains incorrect 'Co-Authored-By' (use 'Generated-by' instead)"; \
@@ -90,7 +90,7 @@ fix-commits:
 			fi; \
 			echo ""; \
 			echo "Generated-by: Claude AI"; \
-			echo "Signed-off-by: Luis Chamberlain <mcgrof@kernel.org>" \
+			echo "Signed-off-by: Luis Chamberlain <mcgrof@do-not-panic.com>" \
 		' -- --all; \
 		echo "✅ Commit messages fixed!"; \
 		echo "⚠️  You may need to force push: git push --force-with-lease"; \

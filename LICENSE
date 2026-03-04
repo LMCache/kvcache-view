@@ -1,4 +1,4 @@
-Copyright (c) 2025 Luis Chamberlain <mcgrof@kernel.org>
+Copyright (c) 2025 Luis Chamberlain <mcgrof@do-not-panic.com>
 
 All kvcache-view code except code in scripts/kconfig is is licensed under MIT
 license. The code in scripts/kconfig is licensed uner the GPLv2.
