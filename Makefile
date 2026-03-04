@@ -44,11 +44,11 @@ check-commits:
 		if echo "$$subject" | grep -q "Generated-by:\|Signed-off-by:\|Co-Authored-By:"; then \
 			errors="$$errors\n  ❌ Subject line contains attribution (should be in body only)"; \
 		fi; \
-		if ! echo "$$body" | grep -q "^Generated-by: Claude AI$$"; then \
-			errors="$$errors\n  ❌ Missing 'Generated-by: Claude AI' in body"; \
+		if ! echo "$$body" | grep -q "^Generated-by: "; then \
+			errors="$$errors\n  ❌ Missing 'Generated-by:' tag in body (e.g. 'Generated-by: Claude AI')"; \
 		fi; \
-		if ! echo "$$body" | grep -q "^Signed-off-by: Luis Chamberlain <mcgrof@do-not-panic.com>$$"; then \
-			errors="$$errors\n  ❌ Missing 'Signed-off-by: Luis Chamberlain <mcgrof@do-not-panic.com>' in body"; \
+		if ! echo "$$body" | grep -q "^Signed-off-by: "; then \
+			errors="$$errors\n  ❌ Missing 'Signed-off-by:' tag in body"; \
 		fi; \
 		if echo "$$body" | grep -q "Co-Authored-By:"; then \
 			errors="$$errors\n  ❌ Contains incorrect 'Co-Authored-By' (use 'Generated-by' instead)"; \
@@ -79,6 +79,8 @@ fix-commits:
 	@read -p "Continue? (y/N) " -n 1 -r; \
 	echo ""; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		SOB_NAME=$$(git config user.name); \
+		SOB_EMAIL=$$(git config user.email); \
 		git filter-branch -f --msg-filter ' \
 			msg=$$(cat); \
 			subject=$$(echo "$$msg" | head -1 | sed "s/ Generated-by:.*//"); \
@@ -90,7 +92,7 @@ fix-commits:
 			fi; \
 			echo ""; \
 			echo "Generated-by: Claude AI"; \
-			echo "Signed-off-by: Luis Chamberlain <mcgrof@do-not-panic.com>" \
+			echo "Signed-off-by: '"$$SOB_NAME"' <'"$$SOB_EMAIL"'>" \
 		' -- --all; \
 		echo "✅ Commit messages fixed!"; \
 		echo "⚠️  You may need to force push: git push --force-with-lease"; \
