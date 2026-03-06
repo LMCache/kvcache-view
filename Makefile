@@ -1,6 +1,6 @@
 # KV Cache Visualization Makefile
 
-.PHONY: serve run stop clean help check-commits fix-commits format check-format
+.PHONY: serve run stop clean help check-commits fix-commits format check-format generate-thumbnails
 
 # Default port
 PORT ?= 8000
@@ -142,6 +142,10 @@ check-format:
 		exit 1; \
 	fi
 
+## generate-thumbnails: Generate visualization thumbnail images via OpenAI API
+generate-thumbnails:
+	@$(PYTHON) generate_viz_images.py
+
 ## help: Show this help message
 help:
 	@echo "KV Cache Visualization - Memory Growth Demo"
@@ -161,6 +165,9 @@ help:
 	@echo "  make check-format    Check if HTML/JS files are formatted"
 	@echo ""
 	@echo "  make help         Show this help message"
+	@echo ""
+	@echo "Image Generation:"
+	@echo "  make generate-thumbnails  Generate visualization thumbnails (needs OPENAI_API_KEY)"
 	@echo ""
 	@echo "Options:"
 	@echo "  PORT=8080 make serve    Use custom port (default: 8000)"
