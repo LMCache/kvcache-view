@@ -1,7 +1,8 @@
-const CACHE_NAME = 'kvcache-view-v1'
+const CACHE_NAME = 'kvcache-view-v2'
 const urlsToCache = [
     './',
     './index.html',
+    './inference.html',
     './train.html',
     './visualization.js',
     './manifest.json',

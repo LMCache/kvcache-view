@@ -5,17 +5,12 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta
             name="description"
-            content="Interactive visualization of KV cache memory growth and optimization techniques for LLM inference"
+            content="Explore interactive visualizations of KV cache memory, training costs, projections, and optimization strategies"
         />
         <meta name="theme-color" content="#1428a0" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="KV Cache" />
-        <link rel="manifest" href="manifest.json" />
         <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
         <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
-        <link rel="apple-touch-icon" href="icon-192.png" />
-        <title>KV Cache Growth Visualization - The Memory Challenge</title>
+        <title>KV Cache Visualizations</title>
         <style>
             :root {
                 --primary-blue: #1428a0;
@@ -29,11 +24,8 @@
                 --text-primary: #eaf2ff;
                 --text-secondary: #c7d4f8;
                 --text-muted: #a5b4e0;
-                --accent-warn: #ff6b00;
-                --accent-warn-bg: rgba(255, 107, 0, 0.12);
-                --accent-good: #00ff88;
-                --accent-mid: #ffb800;
             }
+
             * {
                 margin: 0;
                 padding: 0;
@@ -47,1363 +39,264 @@
                     radial-gradient(1000px 800px at 100% 10%, rgba(95, 163, 230, 0.25), transparent),
                     linear-gradient(135deg, #050813 0%, #0e173a 55%, #0b1026 100%);
                 color: var(--text-primary);
+                min-height: 100vh;
+                overflow-x: hidden;
+            }
+
+            /* Background effects */
+            .bg-effects {
+                position: fixed;
+                inset: 0;
+                pointer-events: none;
                 overflow: hidden;
-                height: 100vh;
-                display: flex;
-                flex-direction: column;
+                z-index: -1;
             }
 
-            canvas {
-                flex: 1;
-                display: block;
-                background: transparent;
-            }
-
-            .header {
+            .bg-effects .blob {
                 position: absolute;
+                border-radius: 50%;
+                filter: blur(128px);
+            }
+
+            .bg-effects .blob-1 {
                 top: 0;
-                left: 0;
-                right: 0;
-                padding: 30px 40px;
-                background: linear-gradient(to bottom, rgba(8, 12, 28, 0.95), transparent);
-                z-index: 10;
+                left: 25%;
+                width: 384px;
+                height: 384px;
+                background: rgba(128, 90, 213, 0.1);
+            }
+
+            .bg-effects .blob-2 {
+                bottom: 0;
+                right: 25%;
+                width: 384px;
+                height: 384px;
+                background: rgba(59, 130, 246, 0.1);
+            }
+
+            .bg-effects .blob-3 {
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 256px;
+                height: 256px;
+                background: rgba(249, 115, 22, 0.05);
+                filter: blur(96px);
+            }
+
+            .container {
+                max-width: 1152px;
+                margin: 0 auto;
+                padding: 48px 32px 96px;
+                position: relative;
+            }
+
+            /* Header */
+            header {
+                text-align: center;
+                margin-bottom: 48px;
             }
 
             h1 {
-                font-size: 2.5em;
+                font-size: 2.4em;
                 font-weight: 700;
-                margin-bottom: 10px;
-                color: var(--text-primary);
-                text-shadow: 0 8px 40px rgba(20, 40, 160, 0.45);
+                letter-spacing: -0.02em;
+                margin-bottom: 12px;
+                background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-cyan) 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
             }
 
-            .subtitle {
-                font-size: 1.1em;
-                color: var(--text-secondary);
-                margin-bottom: 20px;
-            }
-
-            .info-panel {
-                position: absolute;
-                top: 150px;
-                left: 40px;
-                background: linear-gradient(180deg, var(--surface), var(--surface-2));
-                padding: 15px;
-                border-radius: 12px;
-                border: 1px solid var(--border);
-                backdrop-filter: blur(10px);
-                min-width: 280px;
-                max-width: 300px;
-                z-index: 10;
-                box-shadow:
-                    0 10px 40px rgba(20, 40, 160, 0.35),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-                font-size: 0.9em;
-            }
-
-            .model-info {
-                margin-bottom: 20px;
-            }
-
-            .model-name {
-                font-size: 0.95em;
-                font-weight: 700;
-                color: var(--light-blue);
-                margin-bottom: 10px;
-                letter-spacing: 0.2px;
-                word-wrap: break-word;
-            }
-
-            /* Paper references box - positioned below efficiency box */
-            .paper-refs-box {
-                position: absolute;
-                left: 40px;
-                top: 700px; /* Will be dynamically positioned by JS */
-                background: linear-gradient(180deg, rgba(20, 40, 160, 0.18), rgba(95, 163, 230, 0.07));
-                padding: 12px;
-                border-radius: 12px;
-                border: 1px solid var(--border);
-                backdrop-filter: blur(10px);
-                min-width: 320px;
-                z-index: 10;
-                box-shadow:
-                    0 10px 40px rgba(20, 40, 160, 0.35),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-                font-size: 0.75em;
-                opacity: 0;
-                transform: translateY(-10px);
-                transition:
-                    opacity 0.3s ease,
-                    transform 0.3s ease;
-            }
-
-            .paper-refs-box.show {
-                opacity: 1;
-                transform: translateY(0);
-            }
-
-            .paper-refs-title {
-                font-size: 0.9em;
-                display: flex;
-                align-items: center;
-                margin-bottom: 8px;
-                color: var(--light-blue);
-                font-weight: 700;
-            }
-
-            .paper-refs-title .icon {
-                font-size: 1.1em;
-                margin-right: 8px;
-            }
-
-            .paper-refs-links {
-                font-size: 0.95em;
-                line-height: 1.4;
-            }
-
-            .paper-refs-links a {
-                color: var(--accent-cyan);
-                text-decoration: none;
-                display: block;
-                margin: 4px 0;
-                padding: 4px 8px;
-                background: rgba(0, 0, 0, 0.2);
-                border-radius: 6px;
-                transition: all 0.2s;
-            }
-
-            .paper-refs-links a:hover {
-                color: var(--light-blue);
-                background: rgba(0, 0, 0, 0.4);
-                transform: translateX(3px);
-            }
-
-            .metric {
-                display: flex;
-                justify-content: space-between;
-                margin: 6px 0;
-                padding: 6px 0;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-                font-size: 0.85em;
-            }
-
-            .metric-label {
-                color: var(--text-secondary);
-            }
-
-            .metric-value {
-                font-weight: 700;
-                color: var(--text-primary);
-                text-align: right;
-                flex-shrink: 0;
-                max-width: 60%;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-
-            .memory-value {
-                color: var(--accent-warn);
-                font-size: 1.2em;
-            }
-
-            .warning {
-                background: var(--accent-warn-bg);
-                border: 1px solid var(--accent-warn);
-                padding: 10px;
-                border-radius: 8px;
-                margin-top: 15px;
-                font-size: 0.92em;
-                color: var(--accent-warn);
-                text-shadow: 0 0 10px rgba(255, 107, 0, 0.15);
-            }
-
-            .controls {
-                position: fixed;
-                right: 32px;
-                top: 140px;
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-                z-index: 30;
-                max-width: 240px;
-                align-items: stretch;
-            }
-            .btn-two-line {
-                display: flex;
-                flex-direction: column;
-                line-height: 1.1;
-                align-items: center;
-            }
-            .btn-two-line .caption {
-                font-size: 0.72em;
-                opacity: 0.9;
-                text-transform: none;
-                letter-spacing: 0;
-            }
-
-            /* Enabled state for toggle buttons */
-            .btn-two-line.enabled {
-                background: linear-gradient(135deg, var(--accent-cyan), var(--light-blue)) !important;
-                border-color: var(--accent-cyan) !important;
-                box-shadow: 0 0 15px rgba(0, 212, 255, 0.4) !important;
-            }
-
-            .btn-two-line.enabled .caption {
-                opacity: 1 !important;
-            }
-            .header-toggle {
-                position: absolute;
-                top: 36px;
-                right: 40px;
-                padding: 8px 14px;
-                border-radius: 18px;
-                font-size: 0.85em;
-            }
-
-            button {
-                background: linear-gradient(180deg, rgba(20, 40, 160, 0.2), rgba(20, 40, 160, 0.1));
-                border: 2px solid var(--primary-blue);
-                color: var(--text-primary);
-                padding: 10px 18px;
-                border-radius: 24px;
-                font-size: 0.85em;
-                font-weight: 700;
-                cursor: pointer;
-                transition: all 0.25s ease;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                box-shadow: 0 6px 20px rgba(20, 40, 160, 0.35);
-            }
-
-            button:hover {
-                background: linear-gradient(180deg, #1428a0, #0f1e6b);
-                color: #ffffff;
-                transform: translateY(-2px);
-                box-shadow: 0 10px 28px rgba(20, 40, 160, 0.55);
-            }
-
-            button:focus-visible {
-                outline: 3px solid var(--light-blue);
-                outline-offset: 2px;
-            }
-
-            button.active {
-                background: #1428a0;
-                color: #ffffff;
-                border-color: var(--light-blue);
-                box-shadow: 0 6px 22px rgba(95, 163, 230, 0.45);
-            }
-
-            .legend {
-                position: absolute;
-                bottom: 40px;
-                right: 40px;
-                background: linear-gradient(180deg, var(--surface), var(--surface-2));
-                padding: 12px 16px;
-                border-radius: 12px;
-                border: 1px solid var(--border);
-                z-index: 10;
-                box-shadow:
-                    0 10px 40px rgba(20, 40, 160, 0.35),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-                max-width: 420px;
-                width: auto;
-            }
-
-            .legend h3 {
-                display: inline-block;
-                margin: 0;
-                margin-right: 10px;
-                color: var(--light-blue);
-                font-size: 0.9em;
-            }
-
-            .legend-item {
-                display: flex;
-                align-items: center;
-                margin: 8px 0;
-            }
-
-            .legend-color {
-                width: 20px;
-                height: 20px;
-                border-radius: 3px;
-                margin-right: 10px;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-            }
-            .legend-note {
-                display: inline;
+            header p {
                 color: var(--text-muted);
-                font-size: 0.85em;
-                white-space: normal;
-                text-wrap: balance;
-            }
-
-            .progress-bar {
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                height: 4px;
-                background: rgba(95, 163, 230, 0.15);
-                z-index: 11;
-            }
-
-            .progress-fill {
-                height: 100%;
-                background: linear-gradient(90deg, var(--primary-blue), var(--light-blue));
-                width: 0;
-                transition: width 0.3s ease;
-                box-shadow: 0 0 12px rgba(95, 163, 230, 0.6);
-            }
-
-            @keyframes pulse {
-                0% {
-                    opacity: 1;
-                }
-                50% {
-                    opacity: 0.7;
-                }
-                100% {
-                    opacity: 1;
-                }
-            }
-
-            .pulsing {
-                animation: pulse 2s infinite;
-            }
-
-            /* Critical popup */
-            #criticalOverlay {
-                position: fixed;
-                inset: 0;
-                background: rgba(0, 0, 0, 0.5);
-                display: none;
-                align-items: center;
-                justify-content: center;
-                z-index: 100;
-                backdrop-filter: blur(2px);
-            }
-            #criticalPopup {
-                background: linear-gradient(180deg, var(--surface), var(--surface-2));
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 18px 20px;
-                width: min(520px, 90vw);
-                color: var(--text-primary);
-                box-shadow:
-                    0 20px 60px rgba(20, 40, 160, 0.45),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-            }
-            #criticalHeader {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                margin-bottom: 10px;
-            }
-            #criticalTitle {
-                color: var(--accent-warn);
-                font-weight: 800;
-                letter-spacing: 0.3px;
-            }
-            #criticalClose {
-                background: transparent;
-                border: 1px solid var(--border);
-                color: var(--text-secondary);
-                border-radius: 8px;
-                padding: 6px 10px;
-                cursor: pointer;
-            }
-            #criticalClose:hover {
-                color: #fff;
-                border-color: var(--light-blue);
-            }
-            #criticalMain {
-                font-size: 1.1em;
-                font-weight: 700;
-                margin: 8px 0;
-            }
-            #criticalDetail {
-                color: var(--text-secondary);
-                font-size: 0.95em;
-            }
-
-            /* Factoid panel theme */
-            #factoidPanel {
-                background: linear-gradient(180deg, var(--surface), var(--surface-2)) !important;
-                border: 1px solid var(--border) !important;
-                box-shadow:
-                    0 10px 40px rgba(20, 40, 160, 0.35),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-            }
-            #factoidTitle {
-                color: var(--light-blue) !important;
-                font-size: 0.75em !important;
-            }
-            #factoidMain {
-                color: var(--text-primary) !important;
-                font-size: 0.9em !important;
-                font-weight: 600 !important;
-            }
-            #factoidDetail {
-                color: var(--text-secondary) !important;
-                font-size: 0.7em !important;
-                line-height: 1.3 !important;
-            }
-
-            /* Separate efficiency box below model info */
-            .efficiency-box {
-                position: absolute;
-                left: 40px; /* will be overridden by JS to align with info panel */
-                top: 550px; /* Move further down to avoid overlap */
-                background: linear-gradient(180deg, rgba(20, 40, 160, 0.18), rgba(95, 163, 230, 0.07));
-                padding: 12px;
-                border-radius: 12px;
-                border: 1px solid var(--border);
-                backdrop-filter: blur(10px);
-                min-width: 320px;
-                z-index: 10;
-                box-shadow:
-                    0 10px 40px rgba(20, 40, 160, 0.35),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-                font-size: 0.75em; /* Smaller font size to prevent overlap */
-            }
-
-            .efficiency-title {
-                font-size: 0.9em;
-                display: flex;
-                align-items: center;
-                margin-bottom: 8px;
-            }
-            .efficiency-title .icon {
-                font-size: 1.1em;
-                margin-right: 8px;
-            }
-            .efficiency-title .text {
-                color: var(--light-blue);
-                font-weight: 700;
-            }
-            /* Elegant math-like equation styling */
-            .efficiency-eq {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-                color: var(--text-primary);
-                background: rgba(8, 12, 28, 0.35);
-                padding: 8px 10px;
-                border-radius: 8px;
-                margin-bottom: 8px;
-                text-align: center;
-                font-variant-numeric: lining-nums;
-            }
-            .efficiency-eq .eta {
-                font-weight: 800;
-                color: var(--light-blue);
                 font-size: 1.05em;
-                letter-spacing: 0.5px;
+                max-width: 560px;
+                margin: 0 auto;
+                line-height: 1.5;
             }
-            .efficiency-eq .equals,
-            .efficiency-eq .times {
-                opacity: 0.9;
+
+            /* Card grid */
+            .viz-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                gap: 24px;
             }
-            .efficiency-eq .hundred {
-                font-weight: 600;
+
+            .viz-card {
+                display: block;
+                text-decoration: none;
+                color: inherit;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                overflow: hidden;
+                transition:
+                    transform 0.25s ease,
+                    box-shadow 0.25s ease,
+                    border-color 0.25s ease;
             }
-            .efficiency-eq .percent {
-                opacity: 0.9;
+
+            .viz-card:hover {
+                transform: translateY(-6px);
+                box-shadow:
+                    0 12px 32px rgba(0, 212, 255, 0.12),
+                    0 4px 12px rgba(0, 0, 0, 0.3);
+                border-color: var(--accent-cyan);
             }
-            .fraction {
-                display: inline-flex;
-                flex-direction: column;
-                align-items: center;
-                min-width: 180px;
-                line-height: 1.2;
-            }
-            .fraction .top,
-            .fraction .bottom {
-                padding: 2px 8px;
-            }
-            .fraction .bar {
+
+            .viz-card img {
                 width: 100%;
-                height: 1.5px;
-                background: rgba(255, 255, 255, 0.75);
-                border-radius: 1px;
-            }
-            .kv-label {
-                color: var(--accent-cyan);
-                font-weight: 700;
-            }
-            .gpu-label {
-                color: #ffc24a;
-                font-weight: 700;
-            }
-            .efficiency-desc {
-                color: var(--text-secondary);
-                font-size: 0.8em;
-                line-height: 1.4;
-            }
-            .efficiency-example {
-                margin-top: 6px;
-                padding-top: 6px;
-                border-top: 1px solid rgba(255, 255, 255, 0.12);
-                font-size: 0.8em;
-                text-wrap: balance; /* distribute words to avoid orphan lines */
-                text-align: left;
+                aspect-ratio: 1 / 1;
+                object-fit: cover;
+                display: block;
+                border-bottom: 1px solid var(--border);
+                transition: filter 0.25s ease;
             }
 
-            /* Mobile optimizations - Enhanced modern mobile layout */
-            @media screen and (max-width: 768px) {
-                body {
-                    overflow: hidden;
-                    position: fixed;
-                    width: 100%;
-                    height: 100%;
-                }
+            .viz-card:hover img {
+                filter: brightness(1.08);
+            }
 
-                /* Hide header completely on mobile */
-                .header {
-                    display: none;
-                }
+            .viz-card .card-body {
+                padding: 20px;
+            }
 
-                /* Modern mobile status bar - compact and readable */
-                .info-panel {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    padding: 12px 16px;
-                    /* Respect notches/status bars */
-                    padding-top: calc(12px + constant(safe-area-inset-top));
-                    padding-top: calc(12px + env(safe-area-inset-top));
-                    background: linear-gradient(
-                        180deg,
-                        rgba(5, 8, 19, 0.98) 0%,
-                        rgba(5, 8, 19, 0.95) 80%,
-                        rgba(5, 8, 19, 0.85) 100%
-                    );
-                    backdrop-filter: blur(12px);
-                    border-bottom: 1px solid var(--border);
-                    z-index: 100;
-                    display: grid;
-                    grid-template-columns: 1fr auto;
-                    gap: 12px;
-                    align-items: center;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-                }
+            .viz-card h2 {
+                font-size: 1.1em;
+                font-weight: 600;
+                margin-bottom: 6px;
+                color: var(--text-primary);
+            }
 
-                .model-info {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 4px;
-                    margin: 0;
-                    min-width: 0;
-                }
+            .viz-card p {
+                font-size: 0.88em;
+                line-height: 1.45;
+                color: var(--text-muted);
+            }
 
-                .model-name {
-                    font-size: 0.95em;
-                    margin: 0;
-                    font-weight: 700;
-                    color: var(--light-blue);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
+            /* Staggered card entrance */
+            .viz-card {
+                opacity: 0;
+                transform: translateY(20px);
+                animation: cardIn 0.4s ease forwards;
+            }
 
-                .metric {
-                    margin: 0;
-                    font-size: 0.85em;
-                    display: none;
-                    border: none;
-                    padding: 0;
-                }
+            .viz-card:nth-child(1) {
+                animation-delay: 0.05s;
+            }
+            .viz-card:nth-child(2) {
+                animation-delay: 0.1s;
+            }
+            .viz-card:nth-child(3) {
+                animation-delay: 0.15s;
+            }
+            .viz-card:nth-child(4) {
+                animation-delay: 0.2s;
+            }
+            .viz-card:nth-child(5) {
+                animation-delay: 0.25s;
+            }
+            .viz-card:nth-child(6) {
+                animation-delay: 0.3s;
+            }
 
-                /* Show key metrics in a compact row */
-                .metric:nth-child(2),
-                .metric:nth-child(3),
-                .metric:nth-child(6) {
-                    display: inline-flex;
-                    gap: 6px;
-                    align-items: center;
-                    margin-right: 12px;
-                }
-
-                .metric-label {
-                    color: var(--text-muted);
-                    font-size: 0.85em;
-                }
-
-                .metric-value {
-                    font-weight: 700;
-                    color: var(--accent-cyan);
-                    font-size: 0.9em;
-                }
-
-                .memory-value {
-                    color: var(--accent-warn);
-                    font-size: 1em;
-                }
-
-                /* Hide all non-essential elements on mobile */
-                #factoidPanel,
-                .efficiency-box,
-                .instruction-panel,
-                #criticalEvent,
-                .progress-details,
-                .legend,
-                #smwToggle {
-                    display: none !important;
-                }
-
-                /* Keep progress bar visible on mobile under the top info panel */
-                .progress-bar {
-                    position: fixed;
-                    top: var(--mobile-info-bottom, 64px);
-                    left: 0;
-                    right: 0;
-                    height: 3px;
-                    z-index: 101;
-                }
-
-                /* Also hide the bottom attribution links on mobile */
-                div[style*='bottom: 10px'][style*='left: 50%'] {
-                    display: none !important;
-                }
-
-                /* Modern bottom control panel */
-                .controls {
-                    position: fixed;
-                    bottom: 0;
-                    left: 0;
-                    right: 0;
-                    padding: 12px 16px;
-                    /* Respect bottom safe area for iOS */
-                    padding-bottom: calc(12px + constant(safe-area-inset-bottom));
-                    padding-bottom: calc(12px + env(safe-area-inset-bottom));
-                    background: linear-gradient(
-                        0deg,
-                        rgba(5, 8, 19, 0.98) 0%,
-                        rgba(5, 8, 19, 0.95) 80%,
-                        rgba(5, 8, 19, 0.85) 100%
-                    );
-                    backdrop-filter: blur(12px);
-                    border-top: 1px solid var(--border);
-                    z-index: 100;
-                    display: flex;
-                    flex-wrap: nowrap;
-                    overflow-x: auto;
-                    -webkit-overflow-scrolling: touch;
-                    gap: 8px;
-                    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
-                    scroll-snap-type: x proximity;
-                }
-                .controls::-webkit-scrollbar {
-                    display: none;
-                }
-                .controls {
-                    scrollbar-width: none;
-                    -ms-overflow-style: none;
-                }
-
-                .btn,
-                button {
-                    padding: 14px 12px;
-                    font-size: 0.8em;
-                    min-width: unset;
-                    background: linear-gradient(180deg, rgba(20, 40, 160, 0.3), rgba(20, 40, 160, 0.15));
-                    border: 1.5px solid var(--primary-blue);
-                    border-radius: 10px;
-                    white-space: nowrap;
-                    font-weight: 700;
-                    letter-spacing: 0.3px;
-                    text-transform: uppercase;
-                    box-shadow: 0 2px 8px rgba(20, 40, 160, 0.2);
-                    transition: all 0.2s ease;
-                    flex: 0 0 auto;
-                    scroll-snap-align: start;
-                }
-
-                button:active {
-                    transform: scale(0.96);
-                    background: linear-gradient(180deg, rgba(20, 40, 160, 0.5), rgba(20, 40, 160, 0.3));
-                }
-
-                .btn-two-line {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 2px;
-                    align-items: center;
-                    padding: 10px 6px;
-                }
-
-                .btn-two-line span:first-child {
-                    font-size: 0.85em;
-                    font-weight: 700;
-                }
-
-                .btn-two-line span:last-child {
-                    display: block;
-                    font-size: 0.65em;
-                    opacity: 0.7;
-                    text-transform: none;
-                    letter-spacing: 0;
-                }
-
-                .btn-two-line.enabled {
-                    background: linear-gradient(135deg, var(--accent-cyan), var(--light-blue)) !important;
-                    border-color: var(--accent-cyan) !important;
-                    box-shadow: 0 2px 12px rgba(0, 212, 255, 0.4) !important;
-                }
-
-                /* Hide datacenter and interconnect controls on mobile */
-                #worldDCControl,
-                #interconnectControl {
-                    display: none;
-                }
-
-                /* Full screen canvas with padding for top/bottom bars */
-                canvas {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100vw;
-                    height: 100vh;
-                    z-index: 1;
-                }
-
-                /* GPU count in info panel */
-                .gpu-count {
-                    position: static;
-                    display: inline-block;
-                    background: transparent;
-                    border: none;
-                    padding: 0;
-                    margin-left: 10px;
-                    font-size: 0.85em;
-                }
-
-                /* Warning banner for mobile */
-                .warning {
-                    position: fixed;
-                    top: calc(var(--mobile-info-bottom, 64px) + 12px);
-                    left: 16px;
-                    right: 16px;
-                    margin: 0;
-                    padding: 10px 12px;
-                    border-radius: 8px;
-                    font-size: 0.8em;
-                    z-index: 99;
-                    box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+            @keyframes cardIn {
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
                 }
             }
 
-            /* Very small mobile screens - compact for older/smaller devices */
-            @media screen and (max-width: 480px) {
-                .info-panel {
-                    padding: 10px 12px;
+            /* Responsive */
+            @media (max-width: 768px) {
+                .container {
+                    padding: 32px 16px 80px;
                 }
 
-                .model-name {
-                    font-size: 0.85em;
+                h1 {
+                    font-size: 1.7em;
                 }
 
-                .metric {
-                    font-size: 0.75em;
-                }
-
-                .metric-label {
-                    font-size: 0.75em;
-                }
-
-                .metric-value {
-                    font-size: 0.8em;
-                }
-
-                .controls {
-                    padding: 10px 12px 12px 12px;
-                    gap: 6px;
-                }
-
-                .btn,
-                button {
-                    font-size: 0.7em;
-                    padding: 10px 6px;
-                }
-
-                .btn-two-line {
-                    padding: 8px 4px;
-                }
-
-                .btn-two-line span:first-child {
-                    font-size: 0.8em;
-                }
-
-                .btn-two-line span:last-child {
-                    font-size: 0.6em;
-                }
-            }
-
-            /* Landscape mode optimizations */
-            @media screen and (max-width: 900px) and (orientation: landscape) {
-                .info-panel {
-                    padding: 8px 16px;
-                }
-
-                .controls {
-                    position: fixed;
-                    right: 0;
-                    top: 0;
-                    bottom: 0;
-                    flex-direction: column;
-                    justify-content: center;
-                    padding: 16px 8px;
-                    padding-right: calc(8px + env(safe-area-inset-right));
-                    width: 120px;
-                    background: linear-gradient(
-                        270deg,
-                        rgba(5, 8, 19, 0.98) 0%,
-                        rgba(5, 8, 19, 0.95) 80%,
-                        rgba(5, 8, 19, 0.85) 100%
-                    );
-                    border-left: 1px solid var(--border);
-                    border-top: none;
-                }
-
-                button {
-                    padding: 12px 6px;
-                    font-size: 0.75em;
-                }
-
-                .btn-two-line {
-                    padding: 10px 4px;
-                }
-
-                .btn-two-line span:last-child {
-                    display: none;
+                .viz-grid {
+                    grid-template-columns: 1fr;
                 }
             }
         </style>
     </head>
     <body>
-        <div class="header">
-            <h1>KV Cache Memory Explosion</h1>
-            <div class="subtitle">Watch as context length grows, memory consumption becomes the bottleneck</div>
-            <button
-                id="smwToggle"
-                class="btn-two-line header-toggle"
-                title="Skip accounting for model weights in memory"
-            >
-                <span>SMW — Skip Model Weights</span>
-                <span class="caption">do not load model weights</span>
-            </button>
+        <div class="bg-effects">
+            <div class="blob blob-1"></div>
+            <div class="blob blob-2"></div>
+            <div class="blob blob-3"></div>
         </div>
 
-        <div class="info-panel">
-            <div class="model-info">
-                <div class="model-name" id="modelName">Loading...</div>
-                <div class="metric" style="font-size: 0.95em">
-                    <span class="metric-label">Context:</span>
-                    <span class="metric-value" id="contextLength">0 tokens</span>
-                </div>
-                <div class="metric" style="font-size: 0.95em">
-                    <span class="metric-label">Alloc Unit:</span>
-                    <span class="metric-value" id="allocationUnit">—</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Total Memory:</span>
-                    <span class="metric-value memory-value" id="totalSize">0 GB</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Model Weights:</span>
-                    <span class="metric-value" id="weightsSize">—</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">KV Cache Size:</span>
-                    <span class="metric-value memory-value" id="cacheSize">0 GB</span>
-                </div>
-                <div class="metric" style="font-size: 0.95em">
-                    <span class="metric-label">GPUs:</span>
-                    <span class="metric-value" id="gpusNeeded">1</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Efficiency:</span>
-                    <span class="metric-value" id="efficiency">100%</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Data Type:</span>
-                    <span class="metric-value" id="dataType">FP16</span>
-                </div>
-            </div>
+        <div class="container">
+            <header>
+                <h1>KV Cache Visualizations</h1>
+                <p>
+                    Interactive explorations of GPU memory, KV cache optimization, and the scaling challenges facing
+                    modern LLM inference
+                </p>
+            </header>
 
-            <div class="warning pulsing" id="warning" style="display: none">⚠️ Memory exceeds single GPU capacity!</div>
-        </div>
-
-        <!-- Separate Efficiency box below the model description -->
-        <div class="efficiency-box" id="efficiencyBox">
-            <div class="efficiency-title">
-                <span class="icon">📐</span>
-                <span class="text">Efficiency Formula</span>
-            </div>
-            <div class="efficiency-eq">
-                <span class="eta">η</span>
-                <span class="equals">=</span>
-                <span
-                    class="fraction"
-                    aria-label="Efficiency equals KV cache size divided by total GPU memory times 100 percent"
-                >
-                    <span class="top"><span class="kv-label">KV Cache Size</span></span>
-                    <span class="bar"></span>
-                    <span class="bottom"><span class="gpu-label">Total GPU Memory</span></span>
-                </span>
-                <span class="times">×</span>
-                <span class="hundred">
-                    100
-                    <span class="percent">%</span>
-                </span>
-            </div>
-            <div class="efficiency-desc">
-                <span style="color: #00ff88">High efficiency (>80%)</span>
-                means optimal GPU utilization.
-                <br />
-                <span style="color: #ffb800">Medium efficiency (50-80%)</span>
-                indicates some wasted resources.
-                <br />
-                <span style="color: #ff6b00">Low efficiency (<50%)</span>
-                means you're paying for unused GPU memory!
-                <div class="efficiency-example">
-                    💡
-                    <em>
-                        Example: Needing 45 GiB but allocating an 80 GiB H100 = 56% efficiency = $1.10/hour&nbsp;wasted
-                    </em>
-                </div>
-            </div>
-        </div>
-
-        <!-- Multi-GPU Performance Metrics box -->
-        <div class="efficiency-box" id="performanceMetricsBox" style="display: none; height: auto; min-height: 130px">
-            <div class="efficiency-title">
-                <span class="icon">⚡</span>
-                <span class="text">Performance Impact</span>
-            </div>
-            <div id="metricsContent" style="font-size: 0.72em; line-height: 1.4">
-                <!-- Will be populated by JavaScript -->
-            </div>
-        </div>
-
-        <!-- Paper References box below efficiency formula -->
-        <div class="paper-refs-box" id="paperRefsBox" style="display: none">
-            <div class="paper-refs-title">
-                <span class="icon">📚</span>
-                <span class="text">Paper References</span>
-            </div>
-            <div class="paper-refs-links" id="paperRefsLinks"></div>
-        </div>
-
-        <canvas id="canvas"></canvas>
-
-        <!-- Datacenter capacity clarification panel (appears below memory grid) -->
-        <div id="datacenterNote" style="display: none; position: absolute; z-index: 12">
-            <div
-                style="
-                    background: linear-gradient(180deg, var(--surface), var(--surface-2));
-                    border: 1px solid var(--border);
-                    border-radius: 12px;
-                    padding: 12px 14px;
-                    color: var(--text-primary);
-                    box-shadow:
-                        0 12px 36px rgba(20, 40, 160, 0.35),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.06);
-                    max-width: 640px;
-                "
-            >
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                    <span style="color: var(--accent-warn); font-weight: 800">Exceeds Datacenter Capacity</span>
-                </div>
-                <div
-                    id="datacenterNoteBody"
-                    style="color: var(--text-secondary); font-size: 0.95em; line-height: 1.5"
-                ></div>
-            </div>
-        </div>
-
-        <!-- Critical event popup -->
-        <div id="criticalOverlay" role="dialog" aria-modal="true" aria-labelledby="criticalTitle" style="display: none">
-            <div id="criticalPopup">
-                <div id="criticalHeader">
-                    <div id="criticalTitle">Critical Memory Event</div>
-                    <button id="criticalClose" aria-label="Close">Close</button>
-                </div>
-                <div id="criticalMain">Context exceeds single-GPU capacity</div>
-                <div id="criticalDetail">Additional GPUs are required. See factoid for details.</div>
-            </div>
-        </div>
-
-        <!-- Factoid Panel positioned between URLs and Info panel -->
-        <div
-            id="factoidPanel"
-            style="
-                position: absolute;
-                bottom: 80px;
-                left: 40px;
-                background: rgba(0, 0, 0, 0.85);
-                padding: 10px 12px;
-                border-radius: 10px;
-                border: 1px solid #1428a0;
-                backdrop-filter: blur(10px);
-                width: 240px;
-                max-width: 240px;
-                z-index: 10;
-                box-shadow: 0 10px 40px rgba(20, 40, 160, 0.3);
-                transition: opacity 0.8s ease;
-                display: none;
-            "
-        >
-            <div style="color: #5fa3e6; font-weight: 600; margin-bottom: 6px; font-size: 0.75em" id="factoidTitle">
-                💡 Did You Know?
-            </div>
-            <div
-                style="color: #fff; font-weight: bold; margin-bottom: 6px; font-size: 0.7em; line-height: 1.2"
-                id="factoidMain"
-            >
-                Loading...
-            </div>
-            <div style="color: #aaa; line-height: 1.2; font-size: 0.65em" id="factoidDetail">
-                Calculating insights...
-            </div>
-        </div>
-
-        <div class="controls">
-            <button id="playPause">Play</button>
-            <button id="speedControl">Speed: 50x</button>
-            <button id="modelSwitch">Next Model</button>
-            <button id="contextControl">Context: 128K</button>
-            <button id="batchControl">Batch: 8</button>
-            <button id="cbToggle" class="btn-two-line" title="Toggle continuous batching mode - Orca (OSDI'22)">
-                <span>CB: OFF</span>
-                <span class="caption">continuous batch</span>
-            </button>
-            <button id="paToggle" class="btn-two-line" title="Toggle paged attention - vLLM (SOSP'23)">
-                <span>PA: OFF</span>
-                <span class="caption">paged attention</span>
-            </button>
-            <button id="faToggle" class="btn-two-line" title="Toggle Flash Attention - FlashAttention (NeurIPS'22)">
-                <span>FA: OFF</span>
-                <span class="caption">flash attention</span>
-            </button>
-            <button id="dtypeControl">Type: FP16</button>
-            <button id="gpuControl">Device: H100 80G</button>
-            <button id="gpuCountControl" title="Number of GPUs for distributed serving">GPUs: 1</button>
-            <button id="interconnectControl" title="Toggle GPU interconnect type" style="display: none">
-                Link: NVLink
-            </button>
-            <button id="worldDCControl" title="Simulate famous GPU clusters">DC: None</button>
-        </div>
-
-        <div class="legend">
-            <h3>Info</h3>
-            <div class="legend-note">
-                ⚠️ Warnings appear when memory exceeds single-GPU capacity or requires multi-node configuration
-            </div>
-        </div>
-
-        <div class="progress-bar">
-            <div class="progress-fill" id="progressFill"></div>
-        </div>
-
-        <div
-            style="
-                position: absolute;
-                bottom: 10px;
-                left: 50%;
-                transform: translateX(-50%);
-                text-align: center;
-                color: #999;
-                font-size: 11px;
-                z-index: 5;
-                max-width: 600px;
-            "
-        >
-            <div>
-                <a
-                    href="https://github.com/LMCache/kvcache-view"
-                    target="_blank"
-                    style="color: var(--light-blue); text-decoration: none"
-                >
-                    kvcache-view
+            <div class="viz-grid">
+                <a href="inference.html" class="viz-card">
+                    <img src="thumbnails/kvcache.png" alt="KV Cache Memory Growth visualization" loading="lazy" />
+                    <div class="card-body">
+                        <h2>KV Cache Memory Growth</h2>
+                        <p>Watch GPU memory fill up as context length grows across 5 different LLM architectures</p>
+                    </div>
                 </a>
-            </div>
-            <div>
-                Memory calculations based on
-                <a
-                    href="https://lmcache.ai/kv_cache_calculator.html"
-                    target="_blank"
-                    style="color: var(--light-blue); text-decoration: none"
-                >
-                    LMCache KV Cache Calculator
+
+                <a href="train.html" class="viz-card">
+                    <img src="thumbnails/train.png" alt="Training Memory Simulation visualization" loading="lazy" />
+                    <div class="card-body">
+                        <h2>Training Memory Simulation</h2>
+                        <p>
+                            Explore memory requirements during model training with different batch sizes and optimizers
+                        </p>
+                    </div>
                 </a>
-                formulas
-            </div>
-            <div style="margin-top: 4px">
-                Visualization inspired by
-                <a href="https://lmcache.ai" target="_blank" style="color: var(--light-blue); text-decoration: none">
-                    LMCache
+
+                <a href="projections.html" class="viz-card">
+                    <img src="thumbnails/projections.png" alt="Memory Projections visualization" loading="lazy" />
+                    <div class="card-body">
+                        <h2>Memory Projections 2020&#8211;2030</h2>
+                        <p>
+                            See how KV cache memory demands scale with projected context length growth over the decade
+                        </p>
+                    </div>
                 </a>
-                research on KV cache optimization
-            </div>
-            <div style="margin-top: 4px">
-                <a href="visualizations.html" style="color: var(--light-blue); text-decoration: none">
-                    Other Visualizations
+
+                <a href="orchestrators.html" class="viz-card">
+                    <img src="thumbnails/orchestrators.png" alt="KV Cache Orchestrators visualization" loading="lazy" />
+                    <div class="card-body">
+                        <h2>KV Cache Orchestrators</h2>
+                        <p>Compare LMCache, SGLang HiCache, UCM, and FlexKV approaches to cache management</p>
+                    </div>
+                </a>
+
+                <a href="deepseek-engram.html" class="viz-card">
+                    <img
+                        src="thumbnails/engram.png"
+                        alt="Zipfian Distribution and Engram Cache visualization"
+                        loading="lazy"
+                    />
+                    <div class="card-body">
+                        <h2>Zipfian Distribution &amp; Engram Cache</h2>
+                        <p>Visualize token access patterns and how Engram cache exploits frequency distribution</p>
+                    </div>
+                </a>
+
+                <a href="agentic-cache-offloading.html" class="viz-card">
+                    <img src="thumbnails/agentic.png" alt="Agentic Cache Offloading visualization" loading="lazy" />
+                    <div class="card-body">
+                        <h2>Agentic Cache Offloading</h2>
+                        <p>See how AI agents coordinate KV cache offloading across tiered storage</p>
+                    </div>
                 </a>
             </div>
         </div>
-
-        <script src="visualization.js"></script>
-        <script>
-            // Register service worker for PWA support
-            if ('serviceWorker' in navigator) {
-                window.addEventListener('load', () => {
-                    navigator.serviceWorker
-                        .register('./sw.js')
-                        .then((registration) => {
-                            console.log('Service Worker registered:', registration)
-                        })
-                        .catch((error) => {
-                            console.log('Service Worker registration failed:', error)
-                        })
-                })
-            }
-
-            // Position the efficiency box just below the info panel
-            function positionEfficiencyBox() {
-                const info = document.querySelector('.info-panel')
-                const eff = document.getElementById('efficiencyBox')
-                if (!info || !eff) return
-                const rect = info.getBoundingClientRect()
-                // Align left and subtly widen to avoid awkward single-word wraps
-                const widen = 12 // px
-                eff.style.left = rect.left - widen / 2 + 'px'
-                const gap = 28 // extra space below the model box
-                eff.style.top = rect.bottom + gap + 'px'
-                eff.style.width = rect.width + widen + 'px'
-            }
-
-            // Position factoid panel centered above the GPU architecture visualization
-            // Cache the last visibility state to prevent flicker
-            let lastFactoidVisibility = false // Start with false to match initial hidden state
-            let positioningInProgress = false // Prevent rapid successive calls
-
-            function positionFactoidPanel() {
-                if (positioningInProgress) return // Debounce rapid calls
-                positioningInProgress = true
-
-                setTimeout(() => {
-                    positioningInProgress = false
-                }, 100) // Reset after 100ms
-
-                const panel = document.getElementById('factoidPanel')
-                const infoPanel = document.querySelector('.info-panel')
-                const paperRefsBox = document.getElementById('paperRefsBox')
-                const efficiencyBox = document.getElementById('efficiencyBox')
-                const canvasEl = document.getElementById('canvas')
-                if (!panel || !infoPanel || !canvasEl) return
-
-                // Always hide factoid when paper refs box is visible
-                if (paperRefsBox && paperRefsBox.style.display !== 'none' && paperRefsBox.classList.contains('show')) {
-                    if (lastFactoidVisibility !== false) {
-                        panel.style.display = 'none'
-                        lastFactoidVisibility = false
-                    }
-                    return
-                }
-
-                // Check what's the lowest element we need to avoid
-                let lowestElementBottom = infoPanel.getBoundingClientRect().bottom
-
-                // Check if efficiency box is visible and lower
-                if (efficiencyBox && efficiencyBox.style.display !== 'none') {
-                    const effBottom = efficiencyBox.getBoundingClientRect().bottom
-                    lowestElementBottom = Math.max(lowestElementBottom, effBottom)
-                }
-
-                // Check if there's enough vertical space between lowest element and URLs
-                const urlsTop = window.innerHeight - 80 // URLs are at bottom + their height
-                const availableSpace = urlsTop - lowestElementBottom
-                const panelHeight = panel.offsetHeight || 80 // Smaller expected height
-
-                // Add hysteresis: only change visibility if there's a significant difference (40px buffer)
-                const shouldShow = availableSpace >= panelHeight + 40
-                const shouldHide = availableSpace < panelHeight + 20
-
-                // Only change visibility if crossing the threshold significantly
-                if (shouldHide && lastFactoidVisibility !== false) {
-                    panel.style.display = 'none'
-                    lastFactoidVisibility = false
-                } else if (shouldShow && lastFactoidVisibility !== true) {
-                    panel.style.display = 'block'
-                    panel.style.left = '40px'
-                    panel.style.bottom = '80px' // Just above URLs
-                    panel.style.right = 'auto'
-                    panel.style.top = 'auto'
-                    lastFactoidVisibility = true
-                }
-                // If in the buffer zone (20-40px), keep the current state
-            }
-
-            // Position datacenter note centered below the GPU architecture
-            function positionDatacenterNote() {
-                const wrap = document.getElementById('datacenterNote')
-                const canvasEl = document.getElementById('canvas')
-                if (!wrap || !canvasEl || wrap.style.display === 'none') return
-                const cRect = canvasEl.getBoundingClientRect()
-
-                // GPU architecture dimensions (matching visualization.js)
-                const dieHeight = 280
-                const centerX = canvasEl.width / 2
-                const centerY = canvasEl.height / 2
-                const dieBottom = centerY + dieHeight / 2
-
-                const noteW = wrap.offsetWidth
-                const gap = 100 // Position below the utilization text
-                const leftPx = cRect.left + centerX - noteW / 2
-                const topPx = cRect.top + dieBottom + gap
-
-                wrap.style.left = leftPx + 'px'
-                wrap.style.top = topPx + 'px'
-            }
-            // Expose for visualization.js to call after content updates
-            window.positionFactoidPanel = positionFactoidPanel
-            window.positionDatacenterNote = positionDatacenterNote
-            window.addEventListener('resize', positionEfficiencyBox)
-            window.addEventListener('load', positionEfficiencyBox)
-            window.addEventListener('resize', positionFactoidPanel)
-            window.addEventListener('load', positionFactoidPanel)
-            window.addEventListener('resize', positionDatacenterNote)
-            window.addEventListener('load', positionDatacenterNote)
-            // In case dynamic fonts/layout shift after load
-            setTimeout(positionEfficiencyBox, 200)
-            setTimeout(positionFactoidPanel, 240)
-            setTimeout(positionDatacenterNote, 260)
-
-            // Don't use interval - let visualization.js call when needed
-            // --- Mobile layout helpers: compute top offsets and compact labels ---
-            function setMobileInfoBottomVar() {
-                if (window.innerWidth > 768) return
-                const info = document.querySelector('.info-panel')
-                if (!info) return
-                const rect = info.getBoundingClientRect()
-                document.documentElement.style.setProperty('--mobile-info-bottom', rect.bottom + 'px')
-            }
-
-            function storeOriginal(el) {
-                if (!el) return
-                if (!el.dataset) return
-                if (el.dataset.originalText === undefined) {
-                    el.dataset.originalText = el.innerText
-                }
-            }
-
-            function shortenControlLabels() {
-                if (window.innerWidth > 768) return
-                const ids = {
-                    modelSwitch: 'Model',
-                }
-                // Static relabels
-                Object.entries(ids).forEach(([id, label]) => {
-                    const el = document.getElementById(id)
-                    if (el) {
-                        storeOriginal(el)
-                        el.innerText = label
-                    }
-                })
-                // Prefix shortenings that retain values
-                const ctx = document.getElementById('contextControl')
-                if (ctx) {
-                    storeOriginal(ctx)
-                    ctx.innerText = ctx.innerText.replace(/^Context:/, 'Ctx:')
-                }
-                const spd = document.getElementById('speedControl')
-                if (spd) {
-                    storeOriginal(spd)
-                    spd.innerText = spd.innerText.replace(/^Speed:/, 'Spd:')
-                }
-                const bch = document.getElementById('batchControl')
-                if (bch) {
-                    storeOriginal(bch)
-                    // Keep "Batch:" but trim whitespace
-                    bch.innerText = bch.innerText.replace(/^Batch:\s*/, 'Batch: ')
-                }
-                const dtype = document.getElementById('dtypeControl')
-                if (dtype) {
-                    storeOriginal(dtype)
-                    dtype.innerText = dtype.innerText.replace(/^Type:\s*/, 'Type: ')
-                }
-                const gpu = document.getElementById('gpuControl')
-                if (gpu) {
-                    storeOriginal(gpu)
-                    gpu.innerText = gpu.innerText.replace(/^Device:/, 'GPU:')
-                }
-                const gpn = document.getElementById('gpuCountControl')
-                if (gpn) {
-                    storeOriginal(gpn)
-                    gpn.innerText = gpn.innerText.replace(/^GPUs:\s*/, 'GPUs: ')
-                }
-            }
-
-            function restoreControlLabels() {
-                const ids = [
-                    'modelSwitch',
-                    'contextControl',
-                    'speedControl',
-                    'batchControl',
-                    'dtypeControl',
-                    'gpuControl',
-                    'gpuCountControl',
-                ]
-                ids.forEach((id) => {
-                    const el = document.getElementById(id)
-                    if (el && el.dataset && el.dataset.originalText !== undefined) {
-                        el.innerText = el.dataset.originalText
-                        delete el.dataset.originalText
-                    }
-                })
-            }
-
-            function setupControlsObserver() {
-                const controls = document.querySelector('.controls')
-                if (!controls || window._controlsObserver) return
-                const mo = new MutationObserver(() => {
-                    if (window.innerWidth <= 768) {
-                        shortenControlLabels()
-                        setMobileInfoBottomVar()
-                    }
-                })
-                mo.observe(controls, { subtree: true, childList: true, characterData: true })
-                window._controlsObserver = mo
-            }
-
-            function teardownControlsObserver() {
-                if (window._controlsObserver) {
-                    window._controlsObserver.disconnect()
-                    window._controlsObserver = null
-                }
-            }
-
-            function updateMobileLayout() {
-                if (window.innerWidth <= 768) {
-                    setMobileInfoBottomVar()
-                    shortenControlLabels()
-                    setupControlsObserver()
-                } else {
-                    restoreControlLabels()
-                    document.documentElement.style.removeProperty('--mobile-info-bottom')
-                    teardownControlsObserver()
-                }
-            }
-
-            window.addEventListener('load', updateMobileLayout)
-            window.addEventListener('resize', updateMobileLayout)
-            // End mobile helpers
-        </script>
     </body>
 </html>

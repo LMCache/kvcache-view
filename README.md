@@ -21,7 +21,7 @@ An impactful, animated visualization demonstrating the exponential memory growth
 ## 🚀 Live Demo
 
 ### View Online (No Installation Required!)
-**[🖥️ Inference Visualization](https://htmlpreview.github.io/?https://github.com/LMCache/kvcache-view/blob/main/index.html)** - KV Cache growth simulation
+**[🖥️ Inference Visualization](https://htmlpreview.github.io/?https://github.com/LMCache/kvcache-view/blob/main/inference.html)** - KV Cache growth simulation
 
 **[🏋️ Training Visualization](https://htmlpreview.github.io/?https://github.com/LMCache/kvcache-view/blob/main/train.html)** - Training memory explosion
 
@@ -35,7 +35,7 @@ Or visit: **[kvcache.io](https://kvcache.io/)**
 Direct URLs:
 ```
 # Inference (KV Cache) Visualization
-https://htmlpreview.github.io/?https://github.com/LMCache/kvcache-view/blob/main/index.html
+https://htmlpreview.github.io/?https://github.com/LMCache/kvcache-view/blob/main/inference.html
 
 # Training Memory Visualization
 https://htmlpreview.github.io/?https://github.com/LMCache/kvcache-view/blob/main/train.html
@@ -223,7 +223,8 @@ This visualization demonstrates why such optimizations are critical for the futu
 
 ```
 kvcache-view/
-├── index.html                    # Inference visualization (KV cache growth)
+├── index.html                    # Visualizations hub (entry page)
+├── inference.html                # Inference visualization (KV cache growth)
 ├── visualization.js              # Inference visualization logic
 ├── train.html                    # Training visualization (memory explosion)
 ├── train-visualization.js        # Training visualization logic
