@@ -291,6 +291,20 @@
                         <option value="1">INT8 (1 byte)</option>
                     </select>
                 </div>
+                <div class="control-group">
+                    <label>Batch Size (B)</label>
+                    <select id="batchSelect">
+                        <option value="1" selected>1 (single sequence)</option>
+                        <option value="2">2</option>
+                        <option value="4">4</option>
+                        <option value="8">8</option>
+                        <option value="16">16</option>
+                        <option value="32">32</option>
+                        <option value="64">64</option>
+                        <option value="128">128</option>
+                        <option value="256">256</option>
+                    </select>
+                </div>
             </div>
 
             <div class="chart-container">
@@ -333,6 +347,10 @@
                         <span class="info-value" id="proj2030Model">—</span>
                     </div>
                     <div class="info-row">
+                        <span class="info-label">Batch Size</span>
+                        <span class="info-value" id="proj2030Batch">—</span>
+                    </div>
+                    <div class="info-row">
                         <span class="info-label">High Bound</span>
                         <span class="info-value red" id="proj2030High">—</span>
                     </div>
@@ -351,7 +369,7 @@
                     <div class="formula-box">
                         <div class="formula-line">
                             <span class="formula-label">High Bound:</span>
-                            M = (T/2) * sqrt(2*N*L)
+                            M = B * (T/2) * sqrt(2*N*L)
                         </div>
                         <div class="formula-line">
                             <span class="formula-label">Chinchilla:</span>
@@ -426,6 +444,7 @@
             // State
             let contextLength = 128 // K tokens
             let precision = 2 // bytes per element
+            let batchSize = 1 // sequences in flight
 
             // DOM elements
             const canvas = document.getElementById('chart')
@@ -434,6 +453,7 @@
             const contextSlider = document.getElementById('contextSlider')
             const contextValue = document.getElementById('contextValue')
             const precisionSelect = document.getElementById('precisionSelect')
+            const batchSelect = document.getElementById('batchSelect')
 
             // Helper functions
             function estimateLayers(nBillions) {
@@ -463,9 +483,9 @@
                     const nBillions = config.startParams * Math.pow(2, yearsElapsed / config.doublingTime)
                     const nLayers = estimateLayers(nBillions)
 
-                    // High bound (theoretical max): MHA, r=1.0
+                    // High bound (theoretical max): MHA, r=1.0; batched by B
                     const highBoundElements = calcKVCache(tokens, nBillions, nLayers)
-                    const highBoundGB = highBoundElements * precision
+                    const highBoundGB = highBoundElements * precision * batchSize
 
                     // With GQA-8 only
                     const gqaGB = highBoundGB / 8
@@ -646,6 +666,7 @@
                 // Update 2030 projection panel
                 const lastPoint = data[data.length - 1]
                 document.getElementById('proj2030Model').textContent = `${lastPoint.params.toFixed(0)}B params`
+                document.getElementById('proj2030Batch').textContent = `B = ${batchSize}`
                 document.getElementById('proj2030High').textContent = formatBytes(lastPoint.highBound)
                 document.getElementById('proj2030Sota').textContent = formatBytes(lastPoint.sota)
                 document.getElementById('proj2030Ratio').textContent =
@@ -688,7 +709,7 @@
                 tooltip.innerHTML = `
                     <div class="tooltip-title">Year ${closest.year.toFixed(1)}</div>
                     <div class="tooltip-row" style="color: var(--text-secondary);">
-                        Model: ${closest.params.toFixed(0)}B params, ${closest.layers} layers
+                        Model: ${closest.params.toFixed(0)}B params, ${closest.layers} layers, B=${batchSize}
                     </div>
                     <div class="tooltip-row" style="color: #ef4444;">
                         High Bound: ${formatBytes(closest.highBound)}
@@ -725,6 +746,11 @@
 
             precisionSelect.addEventListener('change', (e) => {
                 precision = parseInt(e.target.value)
+                drawChart()
+            })
+
+            batchSelect.addEventListener('change', (e) => {
+                batchSize = parseInt(e.target.value)
                 drawChart()
             })
 
