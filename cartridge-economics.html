@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="description"
+            content="When do trained, reusable KV-cache Cartridges repay their training, storage and loading costs versus repeatedly prefilling RAG text?"
+        />
+        <meta name="theme-color" content="#0b0b14" />
+        <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+        <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Sora:wght@400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        />
+        <title>Cartridge Economics - Break-even vs Text RAG</title>
+        <style>
+            :root {
+                --mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
+                --display: 'Sora', 'Space Grotesk', sans-serif;
+            }
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                min-height: 100vh;
+                background: #0b0b14;
+                color: #fff;
+                font-family: var(--mono);
+                padding: 24px 20px;
+            }
+            .wrap {
+                max-width: 960px;
+                margin: 0 auto;
+            }
+            h1 {
+                font-family: var(--display);
+                font-size: 28px;
+                font-weight: 800;
+                line-height: 1.2;
+                margin: 0 0 6px 0;
+                background: linear-gradient(135deg, #22d3ee, #a78bfa, #f472b6);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+            .subtitle {
+                font-size: 14px;
+                color: rgba(255, 255, 255, 0.78);
+                margin: 0 0 16px 0;
+                line-height: 1.45;
+                max-width: 720px;
+            }
+            .subtitle a {
+                color: #22d3ee;
+                text-decoration: none;
+            }
+            .top-tabs {
+                display: flex;
+                gap: 0;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                margin-bottom: 20px;
+                flex-wrap: wrap;
+            }
+            .top-tab {
+                padding: 10px 24px;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                background: transparent;
+                border: none;
+                border-bottom: 2px solid transparent;
+                color: rgba(255, 255, 255, 0.45);
+                font-family: var(--display);
+                transition: all 0.15s ease;
+            }
+            .top-tab.active {
+                font-weight: 700;
+                background: rgba(167, 139, 250, 0.12);
+                border-bottom-color: #a78bfa;
+                color: #fff;
+            }
+            .page {
+                display: none;
+            }
+            .page.active {
+                display: block;
+            }
+            .card {
+                background: rgba(255, 255, 255, 0.025);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                padding: 16px 20px;
+                margin-bottom: 16px;
+            }
+            .sec-title {
+                font-size: 16px;
+                color: #fff;
+                font-weight: 700;
+                font-family: var(--display);
+                margin-bottom: 12px;
+            }
+            .sec-note {
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.55);
+                line-height: 1.5;
+                margin-bottom: 10px;
+            }
+            .g3 {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: 10px 20px;
+            }
+            .g2 {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px 20px;
+            }
+            .field label {
+                display: block;
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.75);
+                margin-bottom: 3px;
+            }
+            .field input[type='number'],
+            .field select {
+                width: 100%;
+                padding: 6px 10px;
+                background: #16162a;
+                color: #fff;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 5px;
+                font-size: 13px;
+                font-family: var(--mono);
+            }
+            .field input[type='range'] {
+                width: 100%;
+                accent-color: #a78bfa;
+                cursor: pointer;
+            }
+            .field .val {
+                font-size: 12px;
+                color: #a78bfa;
+                font-weight: 600;
+            }
+            .radio-row {
+                display: flex;
+                gap: 18px;
+                align-items: center;
+                margin-bottom: 10px;
+                font-size: 13px;
+                flex-wrap: wrap;
+            }
+            .radio-row label {
+                cursor: pointer;
+                color: rgba(255, 255, 255, 0.85);
+            }
+            .radio-row input {
+                accent-color: #a78bfa;
+                margin-right: 5px;
+            }
+            .status-banner {
+                border-radius: 8px;
+                padding: 12px 16px;
+                font-size: 14px;
+                line-height: 1.5;
+                margin-bottom: 16px;
+                border: 1px solid;
+            }
+            .status-neutral {
+                background: rgba(148, 163, 184, 0.08);
+                border-color: rgba(148, 163, 184, 0.35);
+                color: #cbd5e1;
+            }
+            .status-good {
+                background: rgba(52, 211, 153, 0.08);
+                border-color: rgba(52, 211, 153, 0.4);
+                color: #34d399;
+            }
+            .status-warn {
+                background: rgba(251, 191, 36, 0.08);
+                border-color: rgba(251, 191, 36, 0.4);
+                color: #fbbf24;
+            }
+            .status-fail {
+                background: rgba(248, 113, 113, 0.08);
+                border-color: rgba(248, 113, 113, 0.4);
+                color: #f87171;
+            }
+            .warn-box {
+                background: rgba(251, 191, 36, 0.06);
+                border: 1px solid rgba(251, 191, 36, 0.3);
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 12px;
+                color: #fbbf24;
+                line-height: 1.5;
+                margin-bottom: 10px;
+            }
+            .warn-inline {
+                color: #fbbf24;
+                font-size: 11px;
+            }
+            .bench-required {
+                color: #fbbf24;
+                font-size: 12px;
+                font-style: italic;
+            }
+            .metric-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 10px;
+            }
+            .metric {
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.07);
+                border-radius: 8px;
+                padding: 10px 12px;
+                min-height: 66px;
+            }
+            .metric .k {
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.55);
+                margin-bottom: 4px;
+            }
+            .metric .v {
+                font-size: 15px;
+                font-weight: 700;
+                color: #fff;
+                word-break: break-word;
+            }
+            .metric .v .sub {
+                font-size: 11px;
+                font-weight: 400;
+                color: rgba(255, 255, 255, 0.5);
+            }
+            .graph-host svg {
+                width: 100%;
+                height: auto;
+                display: block;
+            }
+            .graph-empty,
+            .graph-note {
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.6);
+                padding: 10px 4px;
+                line-height: 1.5;
+            }
+            .graph-note {
+                color: #fbbf24;
+            }
+            .graph-toggle {
+                display: flex;
+                gap: 6px;
+                margin-bottom: 10px;
+            }
+            .graph-toggle button {
+                padding: 6px 14px;
+                font-size: 12px;
+                cursor: pointer;
+                background: transparent;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                color: rgba(255, 255, 255, 0.55);
+                font-family: var(--mono);
+            }
+            .graph-toggle button.active {
+                background: rgba(167, 139, 250, 0.15);
+                border-color: rgba(167, 139, 250, 0.35);
+                color: #a78bfa;
+                font-weight: 700;
+            }
+            .comp-title {
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.65);
+                margin: 12px 0 8px;
+                line-height: 1.5;
+            }
+            .comp-row {
+                display: grid;
+                grid-template-columns: 240px 1fr 90px;
+                gap: 10px;
+                align-items: center;
+                margin-bottom: 6px;
+            }
+            .comp-label {
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.8);
+            }
+            .comp-bar-track {
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 4px;
+                height: 14px;
+                overflow: hidden;
+            }
+            .comp-bar {
+                height: 100%;
+                border-radius: 4px;
+            }
+            .comp-value {
+                font-size: 12px;
+                text-align: right;
+                color: rgba(255, 255, 255, 0.85);
+            }
+            .btn {
+                padding: 8px 18px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                background: rgba(34, 211, 238, 0.12);
+                border: 1px solid rgba(34, 211, 238, 0.35);
+                border-radius: 6px;
+                color: #22d3ee;
+                font-family: var(--display);
+            }
+            .btn:hover {
+                background: rgba(34, 211, 238, 0.2);
+            }
+            table.prices {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 12px;
+            }
+            table.prices th,
+            table.prices td {
+                text-align: left;
+                padding: 6px 8px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+            }
+            table.prices th {
+                color: rgba(255, 255, 255, 0.55);
+                font-weight: 600;
+            }
+            table.prices a {
+                color: #22d3ee;
+                text-decoration: none;
+            }
+            .price-scroll {
+                overflow-x: auto;
+            }
+            ul.assump {
+                font-size: 13px;
+                color: rgba(255, 255, 255, 0.85);
+                line-height: 1.7;
+                padding-left: 20px;
+            }
+            .back-link {
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                z-index: 100;
+            }
+            .back-link a {
+                color: rgba(95, 163, 230, 0.7);
+                text-decoration: none;
+                font-size: 0.85rem;
+            }
+            .back-link a:hover {
+                color: #5fa3e6;
+            }
+            .footer {
+                margin-top: 24px;
+                padding: 16px;
+                text-align: center;
+                color: rgba(255, 255, 255, 0.4);
+                font-size: 12px;
+                border-top: 1px solid rgba(255, 255, 255, 0.06);
+                line-height: 1.6;
+            }
+            .footer a {
+                color: rgba(34, 211, 238, 0.7);
+                text-decoration: none;
+            }
+            @media (max-width: 640px) {
+                .g3,
+                .g2 {
+                    grid-template-columns: 1fr;
+                }
+                .comp-row {
+                    grid-template-columns: 1fr;
+                    gap: 2px;
+                }
+                .comp-value {
+                    text-align: left;
+                }
+                .top-tab {
+                    padding: 10px 14px;
+                    font-size: 13px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <h1>Cartridge Economics &amp; Break-even</h1>
+            <p class="subtitle">
+                When does the one-time cost of generating and training reusable per-document KV-cache Cartridges, plus
+                persistent storage and loading, become cheaper than repeatedly prefilling conventional RAG text?
+                Inspired by
+                <a href="https://arxiv.org/pdf/2606.04557" target="_blank" rel="noopener">
+                    Cartridges at Scale (Amazon AGI Lab, arXiv:2606.04557)
+                </a>
+                .
+            </p>
+
+            <div class="top-tabs">
+                <button class="top-tab active" data-page="breakeven">Break-even</button>
+                <button class="top-tab" data-page="storage">Storage &amp; Traffic</button>
+                <button class="top-tab" data-page="assumptions">Assumptions &amp; Prices</button>
+            </div>
+
+            <!-- ═══ BREAK-EVEN ═══ -->
+            <div id="page-breakeven" class="page active">
+                <div id="be-status" class="status-banner status-neutral">&nbsp;</div>
+
+                <div id="planning-banner" class="warn-box" style="display: none">
+                    ILLUSTRATIVE planning-assumption mode: prefill wall times below are estimated from an assumed
+                    throughput, not measured, and are NOT results from the CAS paper. Use measured wall times for real
+                    decisions.
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Workload</div>
+                    <div class="g3">
+                        <div class="field">
+                            <label for="in-docs">Source documents</label>
+                            <input type="number" id="in-docs" value="20" min="1" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-corpus-tokens">Total source tokens</label>
+                            <input type="number" id="in-corpus-tokens" value="236000" min="0" step="1000" />
+                        </div>
+                        <div class="field">
+                            <label for="in-doc-tokens">Avg source tokens/document (derived, overridable)</label>
+                            <input type="number" id="in-doc-tokens" value="11800" min="0" step="100" />
+                        </div>
+                        <div class="field">
+                            <label for="in-compression">Compression ratio</label>
+                            <select id="in-compression"></select>
+                            <input
+                                type="number"
+                                id="in-compression-custom"
+                                placeholder="custom ratio"
+                                min="1"
+                                step="1"
+                                style="display: none; margin-top: 4px"
+                            />
+                        </div>
+                        <div class="field">
+                            <label for="in-model">Model (BF16 KV MiB per 1K Cartridge tokens)</label>
+                            <select id="in-model"></select>
+                            <input
+                                type="number"
+                                id="in-model-custom"
+                                placeholder="MiB per 1K tokens"
+                                min="1"
+                                step="1"
+                                style="display: none; margin-top: 4px"
+                            />
+                        </div>
+                        <div class="field">
+                            <label for="in-kvformat">KV format</label>
+                            <select id="in-kvformat"></select>
+                        </div>
+                        <div class="field">
+                            <label for="in-unique">Avg unique Cartridges/query</label>
+                            <input type="number" id="in-unique" value="4.4" min="0" step="0.1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-queries-month">RAG queries/month</label>
+                            <input type="number" id="in-queries-month" value="100000" min="0" step="1000" />
+                        </div>
+                        <div class="field">
+                            <label for="in-lifetime">Model/Cartridge lifetime (months)</label>
+                            <input type="number" id="in-lifetime" value="6" min="1" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-replicas">Storage replicas</label>
+                            <input type="number" id="in-replicas" value="1" min="1" step="1" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">One-time Cartridge construction cost</div>
+                    <div class="sec-note">
+                        CAS trains Cartridge pools jointly, so enter the measured cost of the whole corpus run; the
+                        per-document number shown in results is an average, not a marginal cost. The paper reports
+                        H200/B200 hardware and optimizer configuration but not wall-clock time or GPU-hours &mdash;
+                        empty fields stay &ldquo;benchmark required&rdquo;.
+                    </div>
+                    <div class="radio-row">
+                        <label>
+                            <input type="radio" name="build-mode" id="in-mode-a" checked />
+                            Measured run
+                        </label>
+                        <label>
+                            <input type="radio" name="build-mode" id="in-mode-b" />
+                            Direct total GPU-hours
+                        </label>
+                    </div>
+                    <div id="mode-a-fields" class="g3">
+                        <div class="field">
+                            <label for="in-train-gpus">Training GPUs</label>
+                            <input type="number" id="in-train-gpus" placeholder="benchmark required" min="1" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-train-hours">Training wall-clock hours</label>
+                            <input
+                                type="number"
+                                id="in-train-hours"
+                                placeholder="benchmark required"
+                                min="0"
+                                step="0.1"
+                            />
+                        </div>
+                    </div>
+                    <div id="mode-b-fields" class="g3" style="display: none">
+                        <div class="field">
+                            <label for="in-train-gpuhours">Measured total GPU-hours</label>
+                            <input
+                                type="number"
+                                id="in-train-gpuhours"
+                                placeholder="benchmark required"
+                                min="0"
+                                step="0.1"
+                            />
+                        </div>
+                    </div>
+                    <div class="g3" style="margin-top: 10px">
+                        <div class="field">
+                            <label for="in-train-gpu-preset">Training GPU provider/rate</label>
+                            <select id="in-train-gpu-preset"></select>
+                            <input
+                                type="number"
+                                id="in-train-rate-custom"
+                                placeholder="$/GPU-hour"
+                                min="0"
+                                step="0.01"
+                                style="display: none; margin-top: 4px"
+                            />
+                        </div>
+                        <div class="field">
+                            <label for="in-selfstudy">Self-study generation cost ($)</label>
+                            <input type="number" id="in-selfstudy" placeholder="0" min="0" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-other-build">Other one-time cost ($)</label>
+                            <input type="number" id="in-other-build" placeholder="0" min="0" step="1" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Per-query inference savings</div>
+                    <div class="sec-note">
+                        Use measured wall times. A 10x token reduction is not automatically a 100x reduction in GPU time
+                        &mdash; complete prefill includes projections, MLPs, kernel efficiency, batching and scheduling,
+                        not just O(n&sup2;) attention.
+                    </div>
+                    <div class="radio-row">
+                        <label>
+                            <input type="checkbox" id="in-planning" />
+                            Planning-assumption mode (illustrative only)
+                        </label>
+                    </div>
+                    <div id="measured-ms-fields" class="g3">
+                        <div class="field">
+                            <label for="in-text-ms">Text-RAG prefill wall ms/query</label>
+                            <input type="number" id="in-text-ms" placeholder="benchmark required" min="0" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-cart-ms">Cartridge-path prefill wall ms/query</label>
+                            <input type="number" id="in-cart-ms" placeholder="benchmark required" min="0" step="1" />
+                        </div>
+                    </div>
+                    <div id="planning-fields" class="g3" style="display: none">
+                        <div class="field">
+                            <label for="in-plan-text-tokens">Assumed text-RAG prefill tokens/query</label>
+                            <input type="number" id="in-plan-text-tokens" value="9860" min="0" step="10" />
+                        </div>
+                        <div class="field">
+                            <label for="in-plan-cart-tokens">Assumed fresh prefill tokens/query (Cartridge path)</label>
+                            <input type="number" id="in-plan-cart-tokens" value="200" min="0" step="10" />
+                        </div>
+                        <div class="field">
+                            <label for="in-plan-tps">Assumed prefill throughput (tokens/s)</label>
+                            <input type="number" id="in-plan-tps" value="50000" min="1" step="1000" />
+                        </div>
+                    </div>
+                    <div class="g3" style="margin-top: 10px">
+                        <div class="field">
+                            <label for="in-inf-gpus">Inference GPUs/request (TP size)</label>
+                            <input type="number" id="in-inf-gpus" value="1" min="1" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-inf-gpu-preset">Inference GPU provider/rate</label>
+                            <select id="in-inf-gpu-preset"></select>
+                            <input
+                                type="number"
+                                id="in-inf-rate-custom"
+                                placeholder="$/GPU-hour"
+                                min="0"
+                                step="0.01"
+                                style="display: none; margin-top: 4px"
+                            />
+                        </div>
+                        <div class="field">
+                            <label for="in-decode-ms">Decode GPU-ms saved/query (optional)</label>
+                            <input type="number" id="in-decode-ms" value="0" min="0" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-realization">
+                                Compute-value realization
+                                <span class="val" id="v-realization">100%</span>
+                            </label>
+                            <input type="range" id="in-realization" min="0" max="100" step="5" value="100" />
+                        </div>
+                    </div>
+                    <div class="sec-note" style="margin-top: 8px">
+                        Realization 100% = elastic billing, or saved capacity eventually removes GPUs, so saved GPU time
+                        becomes cash. 0% = fixed provisioned fleet: the optimization creates headroom, not a smaller
+                        invoice.
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Cartridge storage &amp; loading</div>
+                    <div class="sec-note">
+                        Dense-retrieval/index costs are common to Text RAG and Cartridge RAG and cancel out of the
+                        comparison. The CAS implementation still performs chunk retrieval to select document Cartridges;
+                        only the additional Cartridge-object load is modeled here.
+                    </div>
+                    <div id="storage-unmodeled" class="warn-box" style="display: none"></div>
+                    <div class="g3">
+                        <div class="field">
+                            <label for="in-storage-preset">Storage provider</label>
+                            <select id="in-storage-preset"></select>
+                        </div>
+                        <div class="field">
+                            <label for="in-hitrate">Cartridge-object cache hit rate (%)</label>
+                            <input type="number" id="in-hitrate" value="90" min="0" max="100" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-storage-rate">Custom storage $/GB-month (override)</label>
+                            <input type="number" id="in-storage-rate" placeholder="use preset" min="0" step="0.001" />
+                        </div>
+                        <div class="field">
+                            <label for="in-get-cost">Custom GET $/request (override)</label>
+                            <input type="number" id="in-get-cost" placeholder="use preset" min="0" step="0.0000001" />
+                        </div>
+                        <div class="field">
+                            <label for="in-retrieval-cost">Custom retrieval $/GB (override)</label>
+                            <input type="number" id="in-retrieval-cost" placeholder="use preset" min="0" step="0.001" />
+                        </div>
+                        <div class="field">
+                            <label for="in-egress-cost">Custom egress $/GB (override)</label>
+                            <input type="number" id="in-egress-cost" placeholder="use preset" min="0" step="0.001" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Quality gate</div>
+                    <div class="sec-note">
+                        Economics are conditional on quality parity: a cheaper result is irrelevant if accuracy fails.
+                    </div>
+                    <div class="g3">
+                        <div class="field">
+                            <label for="in-q-text">Text-RAG score</label>
+                            <input type="number" id="in-q-text" placeholder="unknown" min="0" step="0.1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-q-cart">Cartridge-RAG score</label>
+                            <input type="number" id="in-q-cart" placeholder="unknown" min="0" step="0.1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-q-tol">Allowed degradation (points)</label>
+                            <input type="number" id="in-q-tol" value="1" min="0" step="0.1" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Results</div>
+                    <div class="metric-grid">
+                        <div class="metric">
+                            <div class="k">Persistent corpus KV</div>
+                            <div class="v" id="m-corpus-bytes">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Cartridge KV/document</div>
+                            <div class="v" id="m-bytes-doc">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Construction cost (corpus)</div>
+                            <div class="v" id="m-build-cost">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Construction cost/document (avg)</div>
+                            <div class="v" id="m-build-doc">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Storage cost</div>
+                            <div class="v" id="m-storage-month">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">GPU-time value saved</div>
+                            <div class="v" id="m-gpu-value">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Realized cash saving</div>
+                            <div class="v" id="m-realized">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Cartridge load cost</div>
+                            <div class="v" id="m-load-cost">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Net saving/query</div>
+                            <div class="v" id="m-net">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Break-even query volume</div>
+                            <div class="v" id="m-breakeven">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Monthly net at selected volume</div>
+                            <div class="v" id="m-monthly-net">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Payback</div>
+                            <div class="v" id="m-payback">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Lifetime ROI</div>
+                            <div class="v" id="m-roi">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Net saving/Cartridge load (approx)</div>
+                            <div class="v" id="m-saving-per-load">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Break-even document loads/month</div>
+                            <div class="v" id="m-doc-hits">—</div>
+                        </div>
+                    </div>
+                    <div class="sec-note" style="margin-top: 10px">
+                        Per-document numbers divide query-level savings evenly between the Cartridges selected for a
+                        query &mdash; an allocation approximation. Popular documents should be trained before cold ones;
+                        a measured per-document prefill delta overrides this when available.
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Lifetime cost crossover</div>
+                    <div id="be-graph" class="graph-host"></div>
+                    <div id="be-components"></div>
+                </div>
+
+                <div style="margin-bottom: 16px">
+                    <button class="btn" id="copy-link">Copy scenario link</button>
+                </div>
+            </div>
+
+            <!-- ═══ STORAGE & TRAFFIC ═══ -->
+            <div id="page-storage" class="page">
+                <div class="card">
+                    <div class="sec-title">Cartridge corpus scaling</div>
+                    <div class="g3">
+                        <div class="field">
+                            <label for="st-model">Model</label>
+                            <select id="st-model"></select>
+                        </div>
+                        <div class="field">
+                            <label for="st-compression">Compression</label>
+                            <select id="st-compression"></select>
+                        </div>
+                        <div class="field">
+                            <label for="st-kvformat">KV format</label>
+                            <select id="st-kvformat"></select>
+                        </div>
+                        <div class="field">
+                            <label for="st-corpus-tokens">Source corpus tokens</label>
+                            <input type="number" id="st-corpus-tokens" value="1000000000" min="0" step="1000000" />
+                        </div>
+                        <div class="field">
+                            <label for="st-doc-tokens">Avg document tokens</label>
+                            <input type="number" id="st-doc-tokens" value="11800" min="0" step="100" />
+                        </div>
+                        <div class="field">
+                            <label for="st-unique">Unique Cartridges/query</label>
+                            <input type="number" id="st-unique" value="4.4" min="0" step="0.1" />
+                        </div>
+                        <div class="field">
+                            <label for="st-queries-day">RAG queries/day</label>
+                            <input type="number" id="st-queries-day" value="100000" min="0" step="1000" />
+                        </div>
+                        <div class="field">
+                            <label for="st-hitrate">Cache hit rate (%)</label>
+                            <input type="number" id="st-hitrate" value="90" min="0" max="100" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="st-storage-preset">Storage provider</label>
+                            <select id="st-storage-preset"></select>
+                        </div>
+                    </div>
+                    <div class="metric-grid" style="margin-top: 12px">
+                        <div class="metric">
+                            <div class="k">Persistent capacity</div>
+                            <div class="v" id="st-m-capacity">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Monthly storage price</div>
+                            <div class="v" id="st-m-monthly">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Active Cartridge prefix/query</div>
+                            <div class="v" id="st-m-active">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Cold Cartridge reads</div>
+                            <div class="v" id="st-m-cold-reads">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Read traffic</div>
+                            <div class="v" id="st-m-traffic">—</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Corpus size scaling (1M &ndash; 100B source tokens)</div>
+                    <div class="graph-toggle">
+                        <button data-mode="capacity" class="active">Capacity</button>
+                        <button data-mode="cost">Monthly cost</button>
+                    </div>
+                    <div id="st-graph-capacity" class="graph-host"></div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">Daily cold-read traffic vs query volume</div>
+                    <div id="st-graph-traffic" class="graph-host"></div>
+                </div>
+            </div>
+
+            <!-- ═══ ASSUMPTIONS & PRICES ═══ -->
+            <div id="page-assumptions" class="page">
+                <div id="pricing-stale" class="warn-box" style="display: none"></div>
+
+                <div class="card">
+                    <div class="sec-title">Paper-derived values (workload presets)</div>
+                    <ul class="assump">
+                        <li>Model: Qwen3-8B; training hardware: H200/B200.</li>
+                        <li>100&ndash;200 self-study questions per document.</li>
+                        <li>
+                            Experiments used 80 epochs; the paper&rsquo;s discussion notes 10&ndash;20 epochs often
+                            reach ~95% of best performance.
+                        </li>
+                        <li>Roughly 12,400&ndash;14,160 optimizer steps depending on dataset.</li>
+                        <li>Global batch size 128; packed sequence length 8,192.</li>
+                        <li>LongHealth Text RAG at k=10: 9,860 context tokens/query.</li>
+                        <li>LongHealth Cartridge RAG, 20x compression, k=10: 2,673 Cartridge KV tokens/query.</li>
+                        <li>LongHealth Cartridge RAG, 100x compression, k=10: 566 Cartridge KV tokens/query.</li>
+                        <li>k=10 means ten retrieved chunks, not ten Cartridges.</li>
+                        <li>Average unique Cartridges at k=10: LongHealth 4.4, QuALITY 4.8, FinQA 8.7, TechQA 8.1.</li>
+                        <li>
+                            BF16 KV footprint per 1K Cartridge tokens: Qwen3-0.6B 110 MiB, Qwen3-4B/8B 141 MiB,
+                            Qwen3-32B 250 MiB.
+                        </li>
+                        <li>
+                            The paper does
+                            <strong>not</strong>
+                            report total GPU-hours or wall-clock training duration &mdash; those fields stay
+                            &ldquo;benchmark required&rdquo; in the paper preset.
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">What is measured, what is assumed</div>
+                    <ul class="assump">
+                        <li>
+                            <strong>User-measured values (primary mode):</strong>
+                            Text-RAG and Cartridge-path prefill wall milliseconds, inference GPU count, and training
+                            GPU-hours. Dollar savings are never derived by squaring the token compression ratio.
+                        </li>
+                        <li>
+                            <strong>Illustrative assumptions (planning mode):</strong>
+                            prefill times estimated from an assumed throughput. Prominently marked; never described as
+                            paper results.
+                        </li>
+                        <li>
+                            <strong>Warning:</strong>
+                            Cartridges are model/checkpoint-specific. Every model upgrade invalidates trained Cartridges
+                            and shortens the amortization horizon &mdash; that is what the lifetime input models.
+                        </li>
+                        <li>
+                            <strong>Warning:</strong>
+                            GPU-time value is not necessarily immediate cash savings. On a fixed provisioned cluster the
+                            saving first appears as extra capacity, not a smaller invoice &mdash; that is what the
+                            realization percentage models.
+                        </li>
+                        <li>
+                            <strong>Warning:</strong>
+                            the economics are conditional on quality parity; the quality gate blocks a plain
+                            &ldquo;profitable&rdquo; verdict until parity is verified.
+                        </li>
+                        <li>
+                            KV-format multipliers below BF16 are ideal payload ratios, not measured codec output sizes.
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">
+                        GPU pricing snapshot (checked
+                        <span class="snapshot-date">2026-07-17</span>
+                        )
+                    </div>
+                    <div class="price-scroll">
+                        <table class="prices">
+                            <thead>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>Hardware</th>
+                                    <th>Price</th>
+                                    <th>Unit</th>
+                                    <th>Checked</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody id="price-table-gpu"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="sec-title">
+                        Storage pricing snapshot (checked
+                        <span class="snapshot-date">2026-07-17</span>
+                        )
+                    </div>
+                    <div class="price-scroll">
+                        <table class="prices">
+                            <thead>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>Class</th>
+                                    <th>Price</th>
+                                    <th>Checked</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody id="price-table-storage"></tbody>
+                        </table>
+                    </div>
+                    <div class="sec-note" style="margin-top: 8px">
+                        Prices are a static, auditable snapshot &mdash; nothing is scraped at runtime. Where a provider
+                        does not publish a transfer/request price it is marked unmodeled, never silently assumed zero.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="back-link"><a href="index.html">&larr; All visualizations</a></div>
+
+        <div class="footer">
+            Model inspired by Hardalov, Iglesias &amp; de Gispert,
+            <a href="https://arxiv.org/pdf/2606.04557" target="_blank" rel="noopener">
+                &ldquo;Cartridges at Scale: Training Modular KV Caches over Large Document Collections&rdquo;
+            </a>
+            , Amazon AGI Lab, arXiv:2606.04557. Cartridges primitive:
+            <a href="https://arxiv.org/abs/2506.06266" target="_blank" rel="noopener">arXiv:2506.06266</a>
+            .
+        </div>
+
+        <script src="cartridge-pricing.js"></script>
+        <script src="cartridge-economics.js"></script>
+    </body>
+</html>

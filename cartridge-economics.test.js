@@ -112,6 +112,17 @@ test('every pricing preset carries a checked date and source URL', () => {
     }
 })
 
+test('cartridge-economics.html has no duplicate element IDs', () => {
+    const html = fs.readFileSync(path.join(__dirname, 'cartridge-economics.html'), 'utf8')
+    const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1])
+    const seen = new Set()
+    for (const id of ids) {
+        assert.ok(!seen.has(id), `duplicate element id: ${id}`)
+        seen.add(id)
+    }
+    assert.ok(ids.length > 30, 'expected a substantial set of element ids')
+})
+
 test('missing measured values propagate as null (benchmark required), never zero', () => {
     assert.strictEqual(E.buildCostFromMeasuredRun(null, 10, 2.69, 0, 0), null)
     assert.strictEqual(E.buildCostFromGpuHours(null, 2.69, 0, 0), null)
