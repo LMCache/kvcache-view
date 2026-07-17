@@ -205,6 +205,9 @@
             .viz-card:nth-child(6) {
                 animation-delay: 0.3s;
             }
+            .viz-card:nth-child(7) {
+                animation-delay: 0.35s;
+            }
 
             @keyframes cardIn {
                 to {
@@ -299,6 +302,21 @@
                     <div class="card-body">
                         <h2>Agentic Cache Offloading</h2>
                         <p>See how AI agents coordinate KV cache offloading across tiered storage</p>
+                    </div>
+                </a>
+
+                <a href="cartridge-economics.html" class="viz-card">
+                    <img
+                        src="thumbnails/cartridge-economics.png"
+                        alt="Cartridge Economics and Break-even visualization"
+                        loading="lazy"
+                    />
+                    <div class="card-body">
+                        <h2>Cartridge Economics &amp; Break-even</h2>
+                        <p>
+                            Find when reusable learned KV caches repay their training, storage, and loading costs
+                            through avoided RAG prefill
+                        </p>
                     </div>
                 </a>
             </div>

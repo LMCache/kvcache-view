@@ -16,6 +16,7 @@ An impactful, animated visualization demonstrating the exponential memory growth
 - 🖥️ **Multi-GPU Support**: Distributed inference simulation with interconnect bandwidth modeling
 - 🎮 **Latest GPUs**: Support for NVIDIA Blackwell (B100, B200, GB200) and AMD MI300X
 - 🌊 **Beautiful Visuals**: Dynamic particle animations and visual effects
+- 💰 **Cartridge Economics**: Break-even calculator for trained, reusable KV-cache Cartridges vs Text RAG prefill
 - 📱 **Progressive Web App**: Install as a full-screen standalone app on mobile and desktop devices
 
 ## 🚀 Live Demo
@@ -175,6 +176,29 @@ Based on the [Qwen3 Technical Report](https://arxiv.org/abs/2505.09388) ([Audio 
 ### DeepSeek-V3: KV-LoRA Innovation
 Uses KV-LoRA compression to achieve 7x memory reduction compared to standard transformer architectures.
 
+## Cartridge Economics & Break-even
+
+`cartridge-economics.html` is an interactive calculator answering: when does the
+one-time cost of generating and training reusable per-document KV-cache
+Cartridges, plus their persistent storage and loading costs, become cheaper than
+repeatedly prefilling conventional RAG text?
+
+It is inspired by *Cartridges at Scale: Training Modular KV Caches over Large
+Document Collections* (Hardalov, Iglesias, de Gispert — Amazon AGI Lab,
+[arXiv:2606.04557](https://arxiv.org/pdf/2606.04557)), which trains pools of
+per-document Cartridges and selects them with chunk retrieval, matching Text-RAG
+quality with 3-4x fewer prompt tokens. The paper reports training hardware and
+optimizer configuration but not GPU-hours or wall-clock time, so the calculator's
+primary mode requires *measured* training GPU-hours and prefill wall times — it
+never derives dollar savings from the O(n²) attention argument alone. A clearly
+marked illustrative planning mode is available for what-if exploration.
+
+The calculator models one-time construction cost, persistent storage (with a
+static, dated, sourced pricing snapshot in `cartridge-pricing.js`), per-query
+Cartridge loading, realized vs theoretical GPU-time savings, model/checkpoint
+lifetime, and a quality-parity gate. The pure calculation functions are unit
+tested under Node (`make test`).
+
 ## Why These Optimizations Matter
 
 LMCache and modern model architectures address memory explosion through:
@@ -228,6 +252,10 @@ kvcache-view/
 ├── visualization.js              # Inference visualization logic
 ├── train.html                    # Training visualization (memory explosion)
 ├── train-visualization.js        # Training visualization logic
+├── cartridge-economics.html      # Cartridge break-even calculator (arXiv:2606.04557)
+├── cartridge-economics.js        # Cartridge economics model + UI logic
+├── cartridge-pricing.js          # Dated GPU/storage pricing snapshot
+├── cartridge-economics.test.js   # Node unit tests for the economics model
 ├── manifest.json                 # PWA manifest (app metadata)
 ├── sw.js                         # Service worker (offline support)
 ├── icon-192.png                  # PWA icon (192x192)

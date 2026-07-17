@@ -112,6 +112,15 @@ test('every pricing preset carries a checked date and source URL', () => {
     }
 })
 
+test('index.html links the new page and its thumbnail exists', () => {
+    const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
+    assert.ok(index.includes('cartridge-economics.html'), 'index.html links cartridge-economics.html')
+    assert.ok(index.includes('thumbnails/cartridge-economics.png'), 'index.html references the thumbnail')
+    const thumb = path.join(__dirname, 'thumbnails', 'cartridge-economics.png')
+    assert.ok(fs.existsSync(thumb), 'thumbnail file exists')
+    assert.ok(fs.statSync(thumb).size > 0, 'thumbnail is not empty')
+})
+
 test('cartridge-economics.html has no duplicate element IDs', () => {
     const html = fs.readFileSync(path.join(__dirname, 'cartridge-economics.html'), 'utf8')
     const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1])

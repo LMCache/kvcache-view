@@ -72,6 +72,17 @@ VISUALIZATIONS = [
             "translucent purple shelves. No text, no letters, no words."
         ),
     },
+    {
+        "id": "cartridge-economics",
+        "file": "thumbnails/cartridge-economics.png",
+        "prompt": (
+            "Abstract dark visualization on navy-charcoal background. "
+            "Two glowing cost curves crossing each other, one orange and "
+            "one cyan, over a faint grid. Small glowing KV cache blocks "
+            "and a translucent storage cylinder in the background. "
+            "Economic break-even aesthetic. No text, no letters, no words."
+        ),
+    },
 ]
 
 
