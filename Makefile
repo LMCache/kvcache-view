@@ -1,6 +1,6 @@
 # KV Cache Visualization Makefile
 
-.PHONY: serve run stop clean help check-commits fix-commits format check-format generate-thumbnails
+.PHONY: serve run stop clean help check-commits fix-commits format check-format generate-thumbnails test
 
 # Default port
 PORT ?= 8000
@@ -146,6 +146,10 @@ check-format:
 generate-thumbnails:
 	@$(PYTHON) generate_viz_images.py
 
+## test: Run the Node unit tests for the calculation models
+test:
+	@node --test cartridge-economics.test.js
+
 ## help: Show this help message
 help:
 	@echo "KV Cache Visualization - Memory Growth Demo"
@@ -159,6 +163,7 @@ help:
 	@echo "  make clean        Stop server and clean up files"
 	@echo ""
 	@echo "Code Quality:"
+	@echo "  make test            Run Node unit tests for the calculation models"
 	@echo "  make check-commits   Check if commit messages follow CLAUDE.md"
 	@echo "  make fix-commits     Fix commit messages to follow CLAUDE.md"
 	@echo "  make format          Format HTML/JS files with Prettier"

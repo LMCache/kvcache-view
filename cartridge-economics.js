@@ -1,0 +1,1205 @@
+// Cartridge Economics — when do trained, reusable KV-cache Cartridges become
+// cheaper than repeatedly prefilling conventional RAG text?
+//
+// Model inspired by "Cartridges at Scale: Training Modular KV Caches over
+// Large Document Collections" (CAS), Hardalov, Iglesias and de Gispert,
+// Amazon AGI Lab, arXiv:2606.04557, https://arxiv.org/pdf/2606.04557
+//
+// The paper reports hardware, optimizer steps and batch configuration, but
+// not wall-clock training time or GPU-hours. The primary economics mode
+// therefore requires measured GPU-hours and measured prefill wall times; it
+// never derives dollar savings from the O(n^2) attention argument alone.
+//
+// The pure calculation functions below take plain numbers and return numbers
+// (or null when a required measured value is missing) so they can be tested
+// under Node without a browser. All capacity math is done in bytes: binary
+// MiB/GiB/TiB for display, decimal GB for cloud billing.
+
+const MS_PER_GPU_HOUR = 3600000
+const BYTES_PER_MIB = 1024 * 1024
+const BYTES_PER_GIB = 1024 * BYTES_PER_MIB
+const BYTES_PER_TIB = 1024 * BYTES_PER_GIB
+const BYTES_PER_DECIMAL_GB = 1e9
+
+// BF16 KV footprint per 1K Cartridge tokens, from the CAS paper (Table of
+// KV footprints; arXiv:2606.04557).
+const CART_MODELS = [
+    { id: 'qwen3-0.6b', label: 'Qwen3-0.6B', mibPer1K: 110 },
+    { id: 'qwen3-8b', label: 'Qwen3-4B/8B', mibPer1K: 141 },
+    { id: 'qwen3-32b', label: 'Qwen3-32B', mibPer1K: 250 },
+    { id: 'custom-model', label: 'Custom', mibPer1K: null },
+]
+
+// KV serialization formats. The non-BF16 multipliers are ideal payload
+// ratios, not measured codec output sizes.
+const KV_FORMATS = [
+    { id: 'bf16', label: 'BF16 K / BF16 V', multiplier: 1.0 },
+    { id: 'k16v8', label: 'BF16 K / FP8 V (ideal payload)', multiplier: 0.75 },
+    { id: 'fp8', label: 'FP8 K / FP8 V (ideal payload)', multiplier: 0.5 },
+]
+
+// Workload constants reported by the CAS paper (arXiv:2606.04557). These are
+// paper-derived presets; training GPU-hours and wall-clock time are NOT
+// reported by the paper and stay "benchmark required".
+const PAPER = {
+    citation:
+        'Hardalov, Iglesias, de Gispert — "Cartridges at Scale: Training Modular KV Caches ' +
+        'over Large Document Collections", Amazon AGI Lab, arXiv:2606.04557',
+    url: 'https://arxiv.org/pdf/2606.04557',
+    model: 'Qwen3-8B',
+    hardware: 'H200/B200',
+    selfStudyQuestionsPerDoc: '100-200',
+    epochs: '80 (10-20 often reach ~95% of best)',
+    optimizerSteps: '12,400-14,160',
+    globalBatch: 128,
+    packedSeqLen: 8192,
+    longHealth: {
+        corpusTokens: 236000,
+        textRagTokensPerQuery: 9860, // k=10 retrieved chunks
+        cartridgeTokensPerQuery20x: 2673,
+        cartridgeTokensPerQuery100x: 566,
+        uniqueCartridgesPerQuery: 4.4,
+    },
+    uniqueCartridgesPerQuery: {
+        LongHealth: 4.4,
+        QuALITY: 4.8,
+        FinQA: 8.7,
+        TechQA: 8.1,
+    },
+}
+
+function isNum(x) {
+    return typeof x === 'number' && isFinite(x)
+}
+
+// ── Capacity ────────────────────────────────────────────────────────────────
+
+function cartridgeTokens(sourceTokens, compressionRatio) {
+    if (!isNum(sourceTokens) || !isNum(compressionRatio) || compressionRatio <= 0) return null
+    return sourceTokens / compressionRatio
+}
+
+function cartridgeBytesForTokens(cartTokens, modelMiBPer1K, kvFormatMultiplier) {
+    if (!isNum(cartTokens) || !isNum(modelMiBPer1K) || !isNum(kvFormatMultiplier)) return null
+    return (cartTokens / 1000) * modelMiBPer1K * BYTES_PER_MIB * kvFormatMultiplier
+}
+
+function cartridgeBytesPerDocument(sourceTokensDoc, compressionRatio, modelMiBPer1K, kvFormatMultiplier) {
+    return cartridgeBytesForTokens(
+        cartridgeTokens(sourceTokensDoc, compressionRatio),
+        modelMiBPer1K,
+        kvFormatMultiplier,
+    )
+}
+
+function corpusBytes(totalSourceTokens, compressionRatio, modelMiBPer1K, kvFormatMultiplier, replicas) {
+    const perReplica = cartridgeBytesForTokens(
+        cartridgeTokens(totalSourceTokens, compressionRatio),
+        modelMiBPer1K,
+        kvFormatMultiplier,
+    )
+    if (perReplica === null || !isNum(replicas) || replicas < 1) return null
+    return perReplica * replicas
+}
+
+function bytesToDecimalGB(bytes) {
+    return bytes / BYTES_PER_DECIMAL_GB
+}
+
+// ── Storage pricing ─────────────────────────────────────────────────────────
+
+// Resolve the $/GB-month rate for a storage preset at a given stored volume.
+// Handles tiered pricing (RunPod network storage switches at 1 TB).
+function storageRateForGB(preset, decimalGB) {
+    if (!preset) return null
+    if (Array.isArray(preset.tiers) && preset.tiers.length > 0) {
+        let rate = null
+        for (const tier of preset.tiers) {
+            if (decimalGB >= tier.minGB) rate = tier.usdPerGBMonth
+        }
+        return rate
+    }
+    return preset.usdPerGBMonth
+}
+
+function storageCostMonth(bytes, usdPerGBMonth) {
+    if (!isNum(bytes) || !isNum(usdPerGBMonth)) return null
+    return bytesToDecimalGB(bytes) * usdPerGBMonth
+}
+
+// ── One-time construction cost ──────────────────────────────────────────────
+
+// CAS trains Cartridge pools jointly, so the corpus-level cost is primary and
+// the per-document number is an average, not a marginal cost.
+function buildCostFromMeasuredRun(gpuCount, wallHours, usdPerGpuHour, selfStudyCost, otherCost) {
+    if (!isNum(gpuCount) || !isNum(wallHours) || !isNum(usdPerGpuHour)) return null
+    return buildCostFromGpuHours(gpuCount * wallHours, usdPerGpuHour, selfStudyCost, otherCost)
+}
+
+function buildCostFromGpuHours(gpuHours, usdPerGpuHour, selfStudyCost, otherCost) {
+    if (!isNum(gpuHours) || !isNum(usdPerGpuHour)) return null
+    return gpuHours * usdPerGpuHour + (isNum(selfStudyCost) ? selfStudyCost : 0) + (isNum(otherCost) ? otherCost : 0)
+}
+
+// ── Per-query inference savings ─────────────────────────────────────────────
+
+function prefillGpuMsSaved(textRagPrefillWallMs, cartridgePrefillWallMs, inferenceGpuCount) {
+    if (!isNum(textRagPrefillWallMs) || !isNum(cartridgePrefillWallMs) || !isNum(inferenceGpuCount)) return null
+    return Math.max(0, textRagPrefillWallMs - cartridgePrefillWallMs) * inferenceGpuCount
+}
+
+function gpuTimeValueSavedQuery(prefillMsSaved, decodeGpuMsSaved, inferenceUsdPerGpuHour) {
+    if (!isNum(prefillMsSaved) || !isNum(inferenceUsdPerGpuHour)) return null
+    const decode = isNum(decodeGpuMsSaved) ? decodeGpuMsSaved : 0
+    return ((prefillMsSaved + decode) / MS_PER_GPU_HOUR) * inferenceUsdPerGpuHour
+}
+
+// realizationFraction: 1.0 means elastic billing or capacity that is actually
+// released; 0.0 means a fixed provisioned fleet where saved GPU time creates
+// headroom but no cash saving.
+function realizedComputeSavingQuery(gpuTimeValue, realizationFraction) {
+    if (!isNum(gpuTimeValue) || !isNum(realizationFraction)) return null
+    return gpuTimeValue * realizationFraction
+}
+
+// ── Cartridge load cost ─────────────────────────────────────────────────────
+
+function coldCartridgesPerQuery(uniqueCartridgesQuery, cacheHitRate) {
+    if (!isNum(uniqueCartridgesQuery) || !isNum(cacheHitRate)) return null
+    return uniqueCartridgesQuery * (1 - cacheHitRate)
+}
+
+function loadCostQuery(
+    cartBytesDoc,
+    uniqueCartridgesQuery,
+    cacheHitRate,
+    getUsdPerRequest,
+    retrievalUsdPerGB,
+    egressUsdPerGB,
+) {
+    const cold = coldCartridgesPerQuery(uniqueCartridgesQuery, cacheHitRate)
+    if (cold === null || !isNum(cartBytesDoc)) return null
+    if (!isNum(getUsdPerRequest) || !isNum(retrievalUsdPerGB) || !isNum(egressUsdPerGB)) return null
+    const coldBytes = cartBytesDoc * cold
+    return cold * getUsdPerRequest + bytesToDecimalGB(coldBytes) * (retrievalUsdPerGB + egressUsdPerGB)
+}
+
+// ── Break-even ──────────────────────────────────────────────────────────────
+
+function netSavingQuery(realizedSaving, loadCost) {
+    if (!isNum(realizedSaving) || !isNum(loadCost)) return null
+    return realizedSaving - loadCost
+}
+
+// Monthly query volume at which the Cartridge path pays for itself within the
+// lifetime H (months). Non-positive per-query net saving never breaks even.
+function breakEvenQueriesMonth(buildCost, lifetimeMonths, storageMonth, netSaving) {
+    if (!isNum(buildCost) || !isNum(lifetimeMonths) || !isNum(storageMonth) || lifetimeMonths <= 0) return null
+    if (!isNum(netSaving) || netSaving <= 0) return Infinity
+    return (buildCost / lifetimeMonths + storageMonth) / netSaving
+}
+
+function monthlyNetSaving(queriesMonth, netSaving, storageMonth) {
+    if (!isNum(queriesMonth) || !isNum(netSaving) || !isNum(storageMonth)) return null
+    return queriesMonth * netSaving - storageMonth
+}
+
+function paybackMonths(buildCost, monthlyNet) {
+    if (!isNum(buildCost) || !isNum(monthlyNet)) return null
+    if (monthlyNet <= 0) return Infinity
+    return buildCost / monthlyNet
+}
+
+function lifetimeRoi(lifetimeMonths, queriesMonth, netSaving, buildCost, storageMonth) {
+    if (!isNum(lifetimeMonths) || !isNum(queriesMonth) || !isNum(netSaving)) return null
+    if (!isNum(buildCost) || !isNum(storageMonth)) return null
+    const benefit = lifetimeMonths * queriesMonth * netSaving
+    const cost = buildCost + lifetimeMonths * storageMonth
+    if (cost <= 0) return null
+    return (benefit - cost) / cost
+}
+
+// ── Per-document prioritization ─────────────────────────────────────────────
+
+// Dividing query-level savings evenly between the Cartridges selected for the
+// query is an allocation approximation; a measured per-document prefill delta
+// should override it when available.
+function netSavingPerLoad(realizedSavingQuery, uniqueCartridgesQuery, variableLoadCostPerCartridge) {
+    if (!isNum(realizedSavingQuery) || !isNum(uniqueCartridgesQuery) || uniqueCartridgesQuery <= 0) return null
+    if (!isNum(variableLoadCostPerCartridge)) return null
+    return realizedSavingQuery / uniqueCartridgesQuery - variableLoadCostPerCartridge
+}
+
+function breakEvenDocumentHitsMonth(buildCostPerDocument, lifetimeMonths, storagePerDocumentMonth, savingPerLoad) {
+    if (!isNum(buildCostPerDocument) || !isNum(lifetimeMonths) || lifetimeMonths <= 0) return null
+    if (!isNum(storagePerDocumentMonth)) return null
+    if (!isNum(savingPerLoad) || savingPerLoad <= 0) return Infinity
+    return (buildCostPerDocument / lifetimeMonths + storagePerDocumentMonth) / savingPerLoad
+}
+
+// ── Quality gate ────────────────────────────────────────────────────────────
+
+// Economics are conditional on quality parity: a cheaper result is irrelevant
+// if accuracy fails. Returns 'unknown', 'pass' or 'fail'.
+function qualityGate(textRagScore, cartridgeScore, allowedDegradation) {
+    if (!isNum(textRagScore) || !isNum(cartridgeScore)) return 'unknown'
+    const tol = isNum(allowedDegradation) ? allowedDegradation : 0
+    return cartridgeScore >= textRagScore - tol ? 'pass' : 'fail'
+}
+
+// ── Display helpers ─────────────────────────────────────────────────────────
+
+function formatBytesBinary(bytes) {
+    if (!isNum(bytes)) return '—'
+    if (bytes >= BYTES_PER_TIB) return (bytes / BYTES_PER_TIB).toFixed(2) + ' TiB'
+    if (bytes >= BYTES_PER_GIB) return (bytes / BYTES_PER_GIB).toFixed(2) + ' GiB'
+    if (bytes >= BYTES_PER_MIB) return (bytes / BYTES_PER_MIB).toFixed(1) + ' MiB'
+    return (bytes / 1024).toFixed(1) + ' KiB'
+}
+
+function formatUSD(x) {
+    if (!isNum(x)) return '—'
+    const abs = Math.abs(x)
+    if (abs >= 1000) return '$' + x.toLocaleString('en-US', { maximumFractionDigits: 0 })
+    if (abs >= 1) return '$' + x.toFixed(2)
+    if (abs >= 0.001) return '$' + x.toFixed(4)
+    if (abs === 0) return '$0'
+    return '$' + x.toExponential(2)
+}
+
+function formatCount(x) {
+    if (!isNum(x)) return '—'
+    if (!isFinite(x)) return '∞'
+    if (x >= 1e9) return (x / 1e9).toFixed(2) + 'B'
+    if (x >= 1e6) return (x / 1e6).toFixed(2) + 'M'
+    if (x >= 1e3) return (x / 1e3).toFixed(1) + 'K'
+    return x < 10 && x !== Math.round(x) ? x.toFixed(2) : String(Math.round(x))
+}
+
+const CartEcon = {
+    MS_PER_GPU_HOUR,
+    BYTES_PER_MIB,
+    BYTES_PER_GIB,
+    BYTES_PER_TIB,
+    CART_MODELS,
+    KV_FORMATS,
+    PAPER,
+    cartridgeTokens,
+    cartridgeBytesForTokens,
+    cartridgeBytesPerDocument,
+    corpusBytes,
+    bytesToDecimalGB,
+    storageRateForGB,
+    storageCostMonth,
+    buildCostFromMeasuredRun,
+    buildCostFromGpuHours,
+    prefillGpuMsSaved,
+    gpuTimeValueSavedQuery,
+    realizedComputeSavingQuery,
+    coldCartridgesPerQuery,
+    loadCostQuery,
+    netSavingQuery,
+    breakEvenQueriesMonth,
+    monthlyNetSaving,
+    paybackMonths,
+    lifetimeRoi,
+    netSavingPerLoad,
+    breakEvenDocumentHitsMonth,
+    qualityGate,
+    formatBytesBinary,
+    formatUSD,
+    formatCount,
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = CartEcon
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Browser UI. Everything below is inert under Node.
+// ════════════════════════════════════════════════════════════════════════════
+
+if (typeof document !== 'undefined') {
+    const $ = (id) => document.getElementById(id)
+
+    const num = (id) => {
+        const el = $(id)
+        if (!el || el.value === '') return null
+        const v = parseFloat(el.value)
+        return isFinite(v) ? v : null
+    }
+
+    // ── Option lists ────────────────────────────────────────────────────────
+
+    function fillSelect(el, options, selected) {
+        el.innerHTML = options
+            .map((o) => `<option value="${o.value}"${o.value === selected ? ' selected' : ''}>${o.label}</option>`)
+            .join('')
+    }
+
+    function gpuPresetOptions() {
+        return CARTRIDGE_PRICING.gpu.map((g) => ({
+            value: g.id,
+            label:
+                g.price === null ? `${g.provider} — ${g.hardware}` : `${g.provider} ${g.hardware} — $${g.price}/GPU-hr`,
+        }))
+    }
+
+    function initSelects() {
+        fillSelect(
+            $('in-model'),
+            CART_MODELS.map((m) => ({
+                value: m.id,
+                label: m.mibPer1K ? `${m.label} (${m.mibPer1K} MiB/1K tok)` : m.label,
+            })),
+            'qwen3-8b',
+        )
+        fillSelect(
+            $('in-kvformat'),
+            KV_FORMATS.map((f) => ({ value: f.id, label: f.label })),
+            'bf16',
+        )
+        fillSelect(
+            $('in-compression'),
+            [2, 5, 10, 20, 50, 100]
+                .map((r) => ({ value: String(r), label: r + 'x' }))
+                .concat([{ value: 'custom', label: 'Custom' }]),
+            '20',
+        )
+        fillSelect($('in-train-gpu-preset'), gpuPresetOptions(), 'runpod-h200-secure')
+        fillSelect($('in-inf-gpu-preset'), gpuPresetOptions(), 'runpod-h100-sxm-community')
+        const storageOpts = CARTRIDGE_PRICING.storage.map((s) => ({
+            value: s.id,
+            label: `${s.provider} ${s.storageClass}`,
+        }))
+        fillSelect($('in-storage-preset'), storageOpts, 'r2-standard')
+        fillSelect(
+            $('st-model'),
+            CART_MODELS.filter((m) => m.mibPer1K).map((m) => ({ value: m.id, label: m.label })),
+            'qwen3-8b',
+        )
+        fillSelect(
+            $('st-kvformat'),
+            KV_FORMATS.map((f) => ({ value: f.id, label: f.label })),
+            'bf16',
+        )
+        fillSelect(
+            $('st-compression'),
+            [2, 5, 10, 20, 50, 100].map((r) => ({ value: String(r), label: r + 'x' })),
+            '20',
+        )
+        fillSelect($('st-storage-preset'), storageOpts, 'r2-standard')
+    }
+
+    // ── Input resolution ────────────────────────────────────────────────────
+
+    function modelMiBPer1K(selectId, customId) {
+        const id = $(selectId).value
+        if (id === 'custom-model') return num(customId)
+        const m = CART_MODELS.find((x) => x.id === id)
+        return m ? m.mibPer1K : null
+    }
+
+    function compressionRatio() {
+        const v = $('in-compression').value
+        return v === 'custom' ? num('in-compression-custom') : parseFloat(v)
+    }
+
+    function gpuRate(selectId, customId) {
+        const id = $(selectId).value
+        const preset = CARTRIDGE_PRICING.gpu.find((g) => g.id === id)
+        if (!preset || preset.price === null) return num(customId)
+        return preset.price
+    }
+
+    function storagePreset() {
+        return CARTRIDGE_PRICING.storage.find((s) => s.id === $('in-storage-preset').value)
+    }
+
+    // Storage cost components: preset value, overridden by a custom field when
+    // the user filled one in. Unpublished (unmodeled) preset components stay
+    // null unless overridden — never silently zero.
+    function storageComponents(preset, decimalGB) {
+        const override = (id, presetVal) => {
+            const v = num(id)
+            return v !== null ? v : presetVal
+        }
+        return {
+            usdPerGBMonth: override('in-storage-rate', storageRateForGB(preset, decimalGB)),
+            getUsdPerRequest: override('in-get-cost', preset ? preset.getUsdPerRequest : null),
+            retrievalUsdPerGB: override('in-retrieval-cost', preset ? preset.retrievalUsdPerGB : null),
+            egressUsdPerGB: override('in-egress-cost', preset ? preset.egressUsdPerGB : null),
+        }
+    }
+
+    // ── Break-even computation ──────────────────────────────────────────────
+
+    function computeBreakEven() {
+        const docs = num('in-docs')
+        const totalTokens = num('in-corpus-tokens')
+        const docTokens = num('in-doc-tokens')
+        const ratio = compressionRatio()
+        const mib1k = modelMiBPer1K('in-model', 'in-model-custom')
+        const kvFmt = KV_FORMATS.find((f) => f.id === $('in-kvformat').value)
+        const kvMult = kvFmt ? kvFmt.multiplier : null
+        const unique = num('in-unique')
+        const queriesMonth = num('in-queries-month')
+        const lifetime = num('in-lifetime')
+        const replicas = num('in-replicas')
+
+        const bytesDoc = cartridgeBytesPerDocument(docTokens, ratio, mib1k, kvMult)
+        const corpus = corpusBytes(totalTokens, ratio, mib1k, kvMult, replicas)
+        const preset = storagePreset()
+        const decGB = corpus !== null ? bytesToDecimalGB(corpus) : 0
+        const store = storageComponents(preset, decGB)
+        const storageMonth = corpus !== null ? storageCostMonth(corpus, store.usdPerGBMonth) : null
+
+        // Construction cost
+        const trainRate = gpuRate('in-train-gpu-preset', 'in-train-rate-custom')
+        const selfStudy = num('in-selfstudy')
+        const otherBuild = num('in-other-build')
+        const modeA = $('in-mode-a').checked
+        const buildCost = modeA
+            ? buildCostFromMeasuredRun(num('in-train-gpus'), num('in-train-hours'), trainRate, selfStudy, otherBuild)
+            : buildCostFromGpuHours(num('in-train-gpuhours'), trainRate, selfStudy, otherBuild)
+
+        // Prefill wall times: measured, or illustrative planning assumption
+        const planning = $('in-planning').checked
+        let textMs = num('in-text-ms')
+        let cartMs = num('in-cart-ms')
+        if (planning) {
+            const tps = num('in-plan-tps')
+            const textTok = num('in-plan-text-tokens')
+            const cartTok = num('in-plan-cart-tokens')
+            textMs = isNum(tps) && isNum(textTok) && tps > 0 ? (textTok / tps) * 1000 : null
+            cartMs = isNum(tps) && isNum(cartTok) && tps > 0 ? (cartTok / tps) * 1000 : null
+        }
+
+        const infGpus = num('in-inf-gpus')
+        const infRate = gpuRate('in-inf-gpu-preset', 'in-inf-rate-custom')
+        const decodeSaved = num('in-decode-ms')
+        const realization = (num('in-realization') ?? 100) / 100
+        const hitRate = (num('in-hitrate') ?? 0) / 100
+
+        const msSaved = prefillGpuMsSaved(textMs, cartMs, infGpus)
+        const gpuValue = gpuTimeValueSavedQuery(msSaved, decodeSaved, infRate)
+        const realized = realizedComputeSavingQuery(gpuValue, realization)
+        const loadCost = loadCostQuery(
+            bytesDoc,
+            unique,
+            hitRate,
+            store.getUsdPerRequest,
+            store.retrievalUsdPerGB,
+            store.egressUsdPerGB,
+        )
+        const net = netSavingQuery(realized, loadCost)
+
+        const beQueries = breakEvenQueriesMonth(buildCost, lifetime, storageMonth, net)
+        const monthly = monthlyNetSaving(queriesMonth, net, storageMonth)
+        const payback = paybackMonths(buildCost, monthly)
+        const roi = lifetimeRoi(lifetime, queriesMonth, net, buildCost, storageMonth)
+
+        // Per-query cost of the text-RAG prefill (for the graph)
+        const textCostQuery =
+            isNum(textMs) && isNum(infGpus) && isNum(infRate) ? ((textMs * infGpus) / MS_PER_GPU_HOUR) * infRate : null
+
+        // Per-document view
+        const buildPerDoc = isNum(buildCost) && isNum(docs) && docs > 0 ? buildCost / docs : null
+        const storagePerDocMonth =
+            bytesDoc !== null && isNum(replicas) ? storageCostMonth(bytesDoc * replicas, store.usdPerGBMonth) : null
+        const perLoadCost = loadCost !== null && isNum(unique) && unique > 0 ? loadCost / unique : null
+        const savingPerLoad = netSavingPerLoad(realized, unique, perLoadCost)
+        const beDocHits = breakEvenDocumentHitsMonth(buildPerDoc, lifetime, storagePerDocMonth, savingPerLoad)
+
+        const quality = qualityGate(num('in-q-text'), num('in-q-cart'), num('in-q-tol'))
+
+        return {
+            docs,
+            totalTokens,
+            docTokens,
+            ratio,
+            mib1k,
+            kvMult,
+            unique,
+            queriesMonth,
+            lifetime,
+            replicas,
+            bytesDoc,
+            corpus,
+            preset,
+            store,
+            storageMonth,
+            buildCost,
+            planning,
+            textMs,
+            cartMs,
+            infGpus,
+            infRate,
+            msSaved,
+            gpuValue,
+            realization,
+            realized,
+            hitRate,
+            loadCost,
+            net,
+            beQueries,
+            monthly,
+            payback,
+            roi,
+            textCostQuery,
+            buildPerDoc,
+            storagePerDocMonth,
+            perLoadCost,
+            savingPerLoad,
+            beDocHits,
+            quality,
+        }
+    }
+
+    // ── Status banner ───────────────────────────────────────────────────────
+
+    function renderStatus(r) {
+        const el = $('be-status')
+        const benchmarkMissing = r.buildCost === null || r.textMs === null || r.cartMs === null || r.net === null
+        let cls, text
+        if (benchmarkMissing) {
+            cls = 'status-neutral'
+            text =
+                'Benchmark required — enter measured training GPU-hours and measured prefill wall times. ' +
+                'The CAS paper does not report them, and this calculator refuses to invent them.'
+        } else if (r.quality === 'fail') {
+            cls = 'status-fail'
+            text = 'Quality gate failed — Cartridge accuracy is below the allowed degradation. Economics are moot.'
+        } else if (r.net <= 0 || !isFinite(r.beQueries)) {
+            cls = 'status-fail'
+            text = 'No economic break-even — per-query net saving is not positive at these inputs.'
+        } else if (r.quality === 'pass') {
+            cls = 'status-good'
+            text = `Economically and quality viable — break-even at ${formatCount(r.beQueries)} queries/month within the ${r.lifetime}-month lifetime.`
+        } else {
+            cls = 'status-warn'
+            text =
+                `Economically positive; quality unverified — break-even at ${formatCount(r.beQueries)} queries/month, ` +
+                'but no quality scores entered. Verify accuracy parity before trusting this.'
+        }
+        if (r.planning && !benchmarkMissing) {
+            text += ' [Illustrative planning assumption — not measured, not paper results.]'
+        }
+        el.className = 'status-banner ' + cls
+        el.textContent = text
+    }
+
+    // ── Metrics rendering ───────────────────────────────────────────────────
+
+    const BENCH = '<span class="bench-required">benchmark required</span>'
+
+    function setMetric(id, html) {
+        $(id).innerHTML = html
+    }
+
+    function metricUSD(x) {
+        return x === null ? BENCH : formatUSD(x)
+    }
+
+    function renderMetrics(r) {
+        setMetric(
+            'm-corpus-bytes',
+            r.corpus === null
+                ? '—'
+                : `${formatBytesBinary(r.corpus)} <span class="sub">(${bytesToDecimalGB(r.corpus).toFixed(1)} GB billed)</span>`,
+        )
+        setMetric('m-bytes-doc', r.bytesDoc === null ? '—' : formatBytesBinary(r.bytesDoc))
+        setMetric('m-build-cost', metricUSD(r.buildCost))
+        setMetric('m-build-doc', metricUSD(r.buildPerDoc))
+        setMetric('m-storage-month', r.storageMonth === null ? BENCH : formatUSD(r.storageMonth) + '/mo')
+        setMetric('m-gpu-value', r.gpuValue === null ? BENCH : formatUSD(r.gpuValue) + '/query')
+        setMetric('m-realized', r.realized === null ? BENCH : formatUSD(r.realized) + '/query')
+        setMetric('m-load-cost', r.loadCost === null ? BENCH : formatUSD(r.loadCost) + '/query')
+        setMetric('m-net', r.net === null ? BENCH : formatUSD(r.net) + '/query')
+        setMetric(
+            'm-breakeven',
+            r.beQueries === null ? BENCH : isFinite(r.beQueries) ? formatCount(r.beQueries) + ' queries/mo' : 'never',
+        )
+        setMetric('m-monthly-net', metricUSD(r.monthly))
+        setMetric(
+            'm-payback',
+            r.payback === null ? BENCH : isFinite(r.payback) ? r.payback.toFixed(1) + ' months' : 'never',
+        )
+        setMetric('m-roi', r.roi === null ? BENCH : (r.roi * 100).toFixed(0) + '%')
+        setMetric('m-saving-per-load', r.savingPerLoad === null ? BENCH : formatUSD(r.savingPerLoad) + '/load')
+        setMetric(
+            'm-doc-hits',
+            r.beDocHits === null ? BENCH : isFinite(r.beDocHits) ? formatCount(r.beDocHits) + ' loads/mo' : 'never',
+        )
+
+        // Unmodeled-cost warning
+        const warn = $('storage-unmodeled')
+        const preset = r.preset
+        if (preset && preset.unmodeled && preset.unmodeled.length > 0) {
+            const missing = []
+            if (preset.unmodeled.includes('getUsdPerRequest') && num('in-get-cost') === null)
+                missing.push('GET/request')
+            if (preset.unmodeled.includes('retrievalUsdPerGB') && num('in-retrieval-cost') === null)
+                missing.push('retrieval $/GB')
+            if (preset.unmodeled.includes('egressUsdPerGB') && num('in-egress-cost') === null)
+                missing.push('egress $/GB')
+            if (missing.length > 0) {
+                warn.style.display = 'block'
+                warn.textContent =
+                    `${preset.provider} ${preset.storageClass} does not publish: ${missing.join(', ')}. ` +
+                    'These are NOT assumed zero — enter overrides below or load costs stay "benchmark required".'
+            } else {
+                warn.style.display = 'none'
+            }
+        } else {
+            warn.style.display = 'none'
+        }
+    }
+
+    // ── Crossover graph (SVG) ───────────────────────────────────────────────
+
+    function renderCrossoverGraph(r) {
+        const host = $('be-graph')
+        const W = 720
+        const H = 340
+        const pad = { l: 64, r: 20, t: 16, b: 44 }
+
+        const usable =
+            r.buildCost !== null &&
+            r.storageMonth !== null &&
+            r.textCostQuery !== null &&
+            r.net !== null &&
+            isNum(r.lifetime)
+        if (!usable) {
+            host.innerHTML = `<div class="graph-empty">Crossover graph needs measured training cost and prefill times (or planning-assumption mode).</div>`
+            return
+        }
+
+        const Hm = r.lifetime
+        const cartVarQuery = r.textCostQuery - r.net
+        const textLine = (q) => Hm * q * r.textCostQuery
+        const cartLine = (q) => r.buildCost + Hm * r.storageMonth + Hm * q * cartVarQuery
+
+        // Log X range around break-even and selected volume
+        let anchors = [r.queriesMonth || 1e4]
+        if (isFinite(r.beQueries) && r.beQueries > 0) anchors.push(r.beQueries)
+        const lo = Math.max(1, Math.min(...anchors) / 100)
+        const hi = Math.max(...anchors) * 100
+        const x0 = Math.pow(10, Math.floor(Math.log10(lo)))
+        const x1 = Math.pow(10, Math.ceil(Math.log10(hi)))
+
+        const yMaxRaw = Math.max(textLine(x1), cartLine(x1))
+        const yMinRaw = Math.max(0.01, Math.min(textLine(x0), r.buildCost + Hm * r.storageMonth))
+        const ly0 = Math.floor(Math.log10(yMinRaw))
+        const ly1 = Math.ceil(Math.log10(yMaxRaw))
+
+        const X = (q) =>
+            pad.l + ((Math.log10(q) - Math.log10(x0)) / (Math.log10(x1) - Math.log10(x0))) * (W - pad.l - pad.r)
+        const Y = (c) => {
+            const lc = Math.log10(Math.max(c, Math.pow(10, ly0)))
+            return H - pad.b - ((lc - ly0) / (ly1 - ly0)) * (H - pad.t - pad.b)
+        }
+
+        const path = (fn) => {
+            const pts = []
+            const steps = 120
+            for (let i = 0; i <= steps; i++) {
+                const q = Math.pow(10, Math.log10(x0) + (i / steps) * (Math.log10(x1) - Math.log10(x0)))
+                pts.push(`${i === 0 ? 'M' : 'L'}${X(q).toFixed(1)},${Y(fn(q)).toFixed(1)}`)
+            }
+            return pts.join(' ')
+        }
+
+        let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lifetime cost crossover graph">`
+
+        // Gridlines and ticks
+        for (let e = Math.log10(x0); e <= Math.log10(x1); e++) {
+            const x = X(Math.pow(10, e))
+            svg += `<line x1="${x}" y1="${pad.t}" x2="${x}" y2="${H - pad.b}" stroke="rgba(255,255,255,0.07)"/>`
+            svg += `<text x="${x}" y="${H - pad.b + 18}" fill="rgba(255,255,255,0.55)" font-size="11" text-anchor="middle">10<tspan baseline-shift="super" font-size="8">${e}</tspan></text>`
+        }
+        for (let e = ly0; e <= ly1; e++) {
+            const y = Y(Math.pow(10, e))
+            svg += `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="rgba(255,255,255,0.07)"/>`
+            svg += `<text x="${pad.l - 8}" y="${y + 4}" fill="rgba(255,255,255,0.55)" font-size="11" text-anchor="end">$10<tspan baseline-shift="super" font-size="8">${e}</tspan></text>`
+        }
+        svg += `<text x="${(pad.l + W - pad.r) / 2}" y="${H - 6}" fill="rgba(255,255,255,0.65)" font-size="12" text-anchor="middle">Monthly RAG queries (log)</text>`
+
+        // Cost lines: text RAG (orange), cartridge (cyan)
+        svg += `<path d="${path(textLine)}" fill="none" stroke="#fb923c" stroke-width="2.5"/>`
+        svg += `<path d="${path(cartLine)}" fill="none" stroke="#22d3ee" stroke-width="2.5"/>`
+
+        // Break-even marker
+        let beNote = ''
+        if (isFinite(r.beQueries) && r.beQueries > 0) {
+            if (r.beQueries >= x0 && r.beQueries <= x1) {
+                const bx = X(r.beQueries)
+                const by = Y(textLine(r.beQueries))
+                svg += `<circle cx="${bx}" cy="${by}" r="5" fill="#f472b6"/>`
+                svg += `<text x="${Math.min(bx + 8, W - 130)}" y="${Math.max(by - 10, 14)}" fill="#f472b6" font-size="12">break-even ${formatCount(r.beQueries)}/mo</text>`
+            } else {
+                beNote = `Break-even at ${formatCount(r.beQueries)} queries/month lies outside the plotted range.`
+            }
+        } else {
+            beNote = 'No break-even: the Cartridge line never drops below Text RAG (net saving ≤ 0).'
+        }
+
+        // Selected volume marker
+        if (isNum(r.queriesMonth) && r.queriesMonth >= x0 && r.queriesMonth <= x1) {
+            const sx = X(r.queriesMonth)
+            svg += `<line x1="${sx}" y1="${pad.t}" x2="${sx}" y2="${H - pad.b}" stroke="rgba(167,139,250,0.6)" stroke-dasharray="4 4" stroke-width="1.5"/>`
+            svg += `<text x="${sx}" y="${pad.t + 12}" fill="#a78bfa" font-size="11" text-anchor="middle">your volume</text>`
+        }
+
+        // Legend
+        svg += `<line x1="${W - 190}" y1="24" x2="${W - 160}" y2="24" stroke="#fb923c" stroke-width="2.5"/>`
+        svg += `<text x="${W - 154}" y="28" fill="rgba(255,255,255,0.8)" font-size="12">Text RAG</text>`
+        svg += `<line x1="${W - 190}" y1="42" x2="${W - 160}" y2="42" stroke="#22d3ee" stroke-width="2.5"/>`
+        svg += `<text x="${W - 154}" y="46" fill="rgba(255,255,255,0.8)" font-size="12">Cartridge</text>`
+        svg += `</svg>`
+        if (beNote) svg += `<div class="graph-note">${beNote}</div>`
+        host.innerHTML = svg
+    }
+
+    // ── Cost component bars ─────────────────────────────────────────────────
+
+    function renderComponents(r) {
+        const host = $('be-components')
+        if (
+            r.textCostQuery === null ||
+            r.buildCost === null ||
+            r.storageMonth === null ||
+            r.net === null ||
+            !isNum(r.queriesMonth)
+        ) {
+            host.innerHTML = ''
+            return
+        }
+        const Hm = r.lifetime
+        const Q = r.queriesMonth
+        const items = [
+            { label: 'Text-RAG prefill compute', value: Hm * Q * r.textCostQuery, color: '#fb923c' },
+            { label: 'Cartridge construction', value: r.buildCost, color: '#22d3ee' },
+            { label: 'Cartridge storage', value: Hm * r.storageMonth, color: '#a78bfa' },
+            { label: 'Cartridge reads', value: Hm * Q * (r.loadCost ?? 0), color: '#f472b6' },
+            {
+                label: 'Remaining Cartridge-side compute',
+                value: Hm * Q * (r.textCostQuery - (r.realized ?? 0)),
+                color: '#34d399',
+            },
+        ]
+        const max = Math.max(...items.map((i) => i.value), 1e-9)
+        host.innerHTML =
+            `<div class="comp-title">Lifetime cost components at ${formatCount(Q)} queries/month (${Hm} months). Common decode, retrieval and model-hosting costs are excluded from both sides.</div>` +
+            items
+                .map(
+                    (i) => `
+            <div class="comp-row">
+                <div class="comp-label">${i.label}</div>
+                <div class="comp-bar-track"><div class="comp-bar" style="width:${Math.max(1, (i.value / max) * 100).toFixed(1)}%;background:${i.color}"></div></div>
+                <div class="comp-value">${formatUSD(i.value)}</div>
+            </div>`,
+                )
+                .join('')
+    }
+
+    // ── Storage & Traffic tab ───────────────────────────────────────────────
+
+    function computeStorage() {
+        const mib1k = (CART_MODELS.find((m) => m.id === $('st-model').value) || {}).mibPer1K
+        const kvFmt = KV_FORMATS.find((f) => f.id === $('st-kvformat').value)
+        const kvMult = kvFmt ? kvFmt.multiplier : null
+        const ratio = parseFloat($('st-compression').value)
+        const corpusTokens = num('st-corpus-tokens')
+        const docTokens = num('st-doc-tokens')
+        const unique = num('st-unique')
+        const queriesDay = num('st-queries-day')
+        const hitRate = (num('st-hitrate') ?? 0) / 100
+        const preset = CARTRIDGE_PRICING.storage.find((s) => s.id === $('st-storage-preset').value)
+
+        const capacity = corpusBytes(corpusTokens, ratio, mib1k, kvMult, 1)
+        const decGB = capacity !== null ? bytesToDecimalGB(capacity) : 0
+        const rate = storageRateForGB(preset, decGB)
+        const monthly = capacity !== null ? storageCostMonth(capacity, rate) : null
+        const bytesDoc = cartridgeBytesPerDocument(docTokens, ratio, mib1k, kvMult)
+        const activeTokens = isNum(unique) && isNum(docTokens) && isNum(ratio) ? unique * (docTokens / ratio) : null
+        const activeBytes = bytesDoc !== null && isNum(unique) ? unique * bytesDoc : null
+        const coldReadsDay = isNum(queriesDay) && isNum(unique) ? queriesDay * unique * (1 - hitRate) : null
+        const trafficDay = coldReadsDay !== null && bytesDoc !== null ? coldReadsDay * bytesDoc : null
+
+        return {
+            mib1k,
+            kvMult,
+            ratio,
+            corpusTokens,
+            docTokens,
+            unique,
+            queriesDay,
+            hitRate,
+            preset,
+            capacity,
+            rate,
+            monthly,
+            bytesDoc,
+            activeTokens,
+            activeBytes,
+            coldReadsDay,
+            trafficDay,
+        }
+    }
+
+    let stGraphMode = 'capacity'
+
+    function renderStorage() {
+        const s = computeStorage()
+        setMetric(
+            'st-m-capacity',
+            s.capacity === null
+                ? '—'
+                : `${formatBytesBinary(s.capacity)} <span class="sub">(${bytesToDecimalGB(s.capacity).toFixed(1)} GB billed)</span>`,
+        )
+        setMetric('st-m-monthly', s.monthly === null ? '—' : formatUSD(s.monthly) + '/mo')
+        setMetric(
+            'st-m-active',
+            s.activeBytes === null ? '—' : `${formatCount(s.activeTokens)} tok / ${formatBytesBinary(s.activeBytes)}`,
+        )
+        setMetric('st-m-cold-reads', s.coldReadsDay === null ? '—' : formatCount(s.coldReadsDay) + '/day')
+        setMetric('st-m-traffic', s.trafficDay === null ? '—' : formatBytesBinary(s.trafficDay) + '/day')
+
+        renderStorageGraph(s)
+        renderTrafficGraph(s)
+    }
+
+    function logAxes(svgParts, W, H, pad, lx0, lx1, ly0, ly1, xLabel, yPrefix) {
+        const X = (lx) => pad.l + ((lx - lx0) / (lx1 - lx0)) * (W - pad.l - pad.r)
+        const Y = (ly) => H - pad.b - ((ly - ly0) / (ly1 - ly0)) * (H - pad.t - pad.b)
+        for (let e = Math.ceil(lx0); e <= Math.floor(lx1); e++) {
+            const x = X(e)
+            svgParts.push(`<line x1="${x}" y1="${pad.t}" x2="${x}" y2="${H - pad.b}" stroke="rgba(255,255,255,0.07)"/>`)
+            svgParts.push(
+                `<text x="${x}" y="${H - pad.b + 18}" fill="rgba(255,255,255,0.55)" font-size="11" text-anchor="middle">10<tspan baseline-shift="super" font-size="8">${e}</tspan></text>`,
+            )
+        }
+        for (let e = Math.ceil(ly0); e <= Math.floor(ly1); e++) {
+            const y = Y(e)
+            svgParts.push(`<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="rgba(255,255,255,0.07)"/>`)
+            svgParts.push(
+                `<text x="${pad.l - 8}" y="${y + 4}" fill="rgba(255,255,255,0.55)" font-size="11" text-anchor="end">${yPrefix}10<tspan baseline-shift="super" font-size="8">${e}</tspan></text>`,
+            )
+        }
+        svgParts.push(
+            `<text x="${(pad.l + W - pad.r) / 2}" y="${H - 6}" fill="rgba(255,255,255,0.65)" font-size="12" text-anchor="middle">${xLabel}</text>`,
+        )
+        return { X, Y }
+    }
+
+    function renderStorageGraph(s) {
+        const host = $('st-graph-capacity')
+        if (s.mib1k === null || !isNum(s.ratio)) {
+            host.innerHTML = ''
+            return
+        }
+        const W = 720
+        const H = 300
+        const pad = { l: 70, r: 20, t: 16, b: 44 }
+        const lx0 = 6
+        const lx1 = 11 // 1M .. 100B source tokens
+        const valueAt = (tokens) => {
+            const cap = corpusBytes(tokens, s.ratio, s.mib1k, s.kvMult, 1)
+            if (stGraphMode === 'capacity') return cap / BYTES_PER_GIB
+            return storageCostMonth(cap, storageRateForGB(s.preset, bytesToDecimalGB(cap)))
+        }
+        const v0 = valueAt(Math.pow(10, lx0))
+        const v1 = valueAt(Math.pow(10, lx1))
+        if (!isNum(v0) || !isNum(v1) || v0 <= 0) {
+            host.innerHTML = `<div class="graph-empty">Selected storage preset has no published rate — enter a custom rate on the Break-even tab.</div>`
+            return
+        }
+        const ly0 = Math.floor(Math.log10(v0))
+        const ly1 = Math.ceil(Math.log10(v1))
+        const parts = [`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cartridge capacity versus corpus size">`]
+        const yPrefix = stGraphMode === 'capacity' ? '' : '$'
+        const { X, Y } = logAxes(parts, W, H, pad, lx0, lx1, ly0, ly1, 'Source corpus tokens (log)', yPrefix)
+        const pts = []
+        for (let i = 0; i <= 100; i++) {
+            const lx = lx0 + (i / 100) * (lx1 - lx0)
+            const v = valueAt(Math.pow(10, lx))
+            pts.push(`${i === 0 ? 'M' : 'L'}${X(lx).toFixed(1)},${Y(Math.log10(Math.max(v, 1e-9))).toFixed(1)}`)
+        }
+        parts.push(`<path d="${pts.join(' ')}" fill="none" stroke="#22d3ee" stroke-width="2.5"/>`)
+        if (isNum(s.corpusTokens) && s.corpusTokens > 0) {
+            const lx = Math.log10(s.corpusTokens)
+            if (lx >= lx0 && lx <= lx1) {
+                const v = valueAt(s.corpusTokens)
+                parts.push(`<circle cx="${X(lx)}" cy="${Y(Math.log10(Math.max(v, 1e-9)))}" r="5" fill="#f472b6"/>`)
+            }
+        }
+        parts.push(
+            `<text x="${pad.l + 6}" y="${pad.t + 12}" fill="rgba(255,255,255,0.7)" font-size="12">${stGraphMode === 'capacity' ? 'Persistent capacity (GiB, log)' : 'Monthly storage cost (log)'}</text>`,
+        )
+        parts.push('</svg>')
+        host.innerHTML = parts.join('')
+    }
+
+    function renderTrafficGraph(s) {
+        const host = $('st-graph-traffic')
+        if (s.bytesDoc === null || !isNum(s.unique)) {
+            host.innerHTML = ''
+            return
+        }
+        const W = 720
+        const H = 300
+        const pad = { l: 70, r: 20, t: 16, b: 44 }
+        const lx0 = 2
+        const lx1 = 8 // 100 .. 100M queries/day
+        const rates = [
+            { hit: 0, color: '#fb923c', label: '0% hit' },
+            { hit: 0.9, color: '#a78bfa', label: '90% hit' },
+            { hit: 0.99, color: '#22d3ee', label: '99% hit' },
+        ]
+        const gibAt = (queries, hit) => (queries * s.unique * (1 - hit) * s.bytesDoc) / BYTES_PER_GIB
+        const vMin = gibAt(Math.pow(10, lx0), 0.99)
+        const vMax = gibAt(Math.pow(10, lx1), 0)
+        const ly0 = Math.floor(Math.log10(Math.max(vMin, 1e-9)))
+        const ly1 = Math.ceil(Math.log10(Math.max(vMax, 1e-8)))
+        const parts = [
+            `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily cold-read traffic versus query volume">`,
+        ]
+        const { X, Y } = logAxes(parts, W, H, pad, lx0, lx1, ly0, ly1, 'RAG queries per day (log)', '')
+        rates.forEach((r, ri) => {
+            const pts = []
+            for (let i = 0; i <= 60; i++) {
+                const lx = lx0 + (i / 60) * (lx1 - lx0)
+                const v = gibAt(Math.pow(10, lx), r.hit)
+                pts.push(`${i === 0 ? 'M' : 'L'}${X(lx).toFixed(1)},${Y(Math.log10(Math.max(v, 1e-9))).toFixed(1)}`)
+            }
+            parts.push(`<path d="${pts.join(' ')}" fill="none" stroke="${r.color}" stroke-width="2.5"/>`)
+            parts.push(
+                `<line x1="${W - 180}" y1="${20 + ri * 18}" x2="${W - 150}" y2="${20 + ri * 18}" stroke="${r.color}" stroke-width="2.5"/>`,
+            )
+            parts.push(
+                `<text x="${W - 144}" y="${24 + ri * 18}" fill="rgba(255,255,255,0.8)" font-size="12">${r.label}</text>`,
+            )
+        })
+        parts.push(
+            `<text x="${pad.l + 6}" y="${pad.t + 12}" fill="rgba(255,255,255,0.7)" font-size="12">Cold-read traffic (GiB/day, log)</text>`,
+        )
+        parts.push('</svg>')
+        host.innerHTML = parts.join('')
+    }
+
+    // ── Assumptions tab ─────────────────────────────────────────────────────
+
+    function renderAssumptions() {
+        const gpuRows = CARTRIDGE_PRICING.gpu
+            .filter((g) => g.price !== null)
+            .map(
+                (g) =>
+                    `<tr><td>${g.provider}</td><td>${g.hardware}</td><td>$${g.price.toFixed(2)}</td><td>${g.unit}</td>` +
+                    `<td>${g.checkedDate}</td><td><a href="${g.sourceUrl}" target="_blank" rel="noopener">source</a></td></tr>`,
+            )
+            .join('')
+        $('price-table-gpu').innerHTML = gpuRows
+        const stRows = CARTRIDGE_PRICING.storage
+            .filter((s) => s.id !== 'custom-storage')
+            .map((s) => {
+                const price = s.tiers
+                    ? s.tiers.map((t) => `$${t.usdPerGBMonth}/GB-mo ≥${t.minGB}GB`).join(', ')
+                    : `$${s.usdPerGBMonth}/GB-mo`
+                const un =
+                    s.unmodeled && s.unmodeled.length
+                        ? ' <span class="warn-inline">(transfer/request unmodeled)</span>'
+                        : ''
+                return (
+                    `<tr><td>${s.provider}</td><td>${s.storageClass}</td><td>${price}${un}</td>` +
+                    `<td>${s.checkedDate}</td><td><a href="${s.sourceUrl}" target="_blank" rel="noopener">source</a></td></tr>`
+                )
+            })
+            .join('')
+        $('price-table-storage').innerHTML = stRows
+
+        // Stale-pricing warning
+        const checked = new Date(CARTRIDGE_PRICING.snapshotDate + 'T00:00:00Z')
+        const ageDays = (Date.now() - checked.getTime()) / 86400000
+        const stale = $('pricing-stale')
+        if (ageDays > CARTRIDGE_PRICING.staleAfterDays) {
+            stale.style.display = 'block'
+            stale.textContent = `Pricing may be stale: this snapshot was checked on ${CARTRIDGE_PRICING.snapshotDate}, ${Math.floor(ageDays)} days ago. Re-verify against the linked sources.`
+        }
+        document.querySelectorAll('.snapshot-date').forEach((el) => (el.textContent = CARTRIDGE_PRICING.snapshotDate))
+    }
+
+    // ── URL state ───────────────────────────────────────────────────────────
+
+    const STATE_IDS = [
+        'in-docs',
+        'in-corpus-tokens',
+        'in-doc-tokens',
+        'in-compression',
+        'in-compression-custom',
+        'in-model',
+        'in-model-custom',
+        'in-kvformat',
+        'in-unique',
+        'in-queries-month',
+        'in-lifetime',
+        'in-replicas',
+        'in-train-gpus',
+        'in-train-hours',
+        'in-train-gpuhours',
+        'in-train-gpu-preset',
+        'in-train-rate-custom',
+        'in-selfstudy',
+        'in-other-build',
+        'in-text-ms',
+        'in-cart-ms',
+        'in-inf-gpus',
+        'in-inf-gpu-preset',
+        'in-inf-rate-custom',
+        'in-decode-ms',
+        'in-realization',
+        'in-plan-text-tokens',
+        'in-plan-cart-tokens',
+        'in-plan-tps',
+        'in-storage-preset',
+        'in-hitrate',
+        'in-storage-rate',
+        'in-get-cost',
+        'in-retrieval-cost',
+        'in-egress-cost',
+        'in-q-text',
+        'in-q-cart',
+        'in-q-tol',
+        'st-model',
+        'st-kvformat',
+        'st-compression',
+        'st-corpus-tokens',
+        'st-doc-tokens',
+        'st-unique',
+        'st-queries-day',
+        'st-hitrate',
+        'st-storage-preset',
+    ]
+    const STATE_CHECKS = ['in-mode-a', 'in-mode-b', 'in-planning']
+
+    function encodeState() {
+        const p = new URLSearchParams()
+        for (const id of STATE_IDS) {
+            const el = $(id)
+            if (el && el.value !== '') p.set(id, el.value)
+        }
+        for (const id of STATE_CHECKS) {
+            const el = $(id)
+            if (el && el.checked) p.set(id, '1')
+        }
+        p.set('tab', activeTab)
+        return p
+    }
+
+    function decodeState() {
+        const p = new URLSearchParams(location.search)
+        for (const id of STATE_IDS) {
+            const el = $(id)
+            if (el && p.has(id)) el.value = p.get(id)
+        }
+        for (const id of STATE_CHECKS) {
+            const el = $(id)
+            if (el) el.checked = p.get(id) === '1'
+        }
+        if (!$('in-mode-a').checked && !$('in-mode-b').checked) $('in-mode-a').checked = true
+        if (p.has('tab')) switchTab(p.get('tab'), false)
+    }
+
+    function pushState() {
+        const url = location.pathname + '?' + encodeState().toString()
+        history.replaceState(null, '', url)
+    }
+
+    // ── Tabs ────────────────────────────────────────────────────────────────
+
+    let activeTab = 'breakeven'
+
+    function switchTab(tab, updateUrl = true) {
+        if (!document.getElementById('page-' + tab)) tab = 'breakeven'
+        activeTab = tab
+        document.querySelectorAll('.top-tab').forEach((b) => b.classList.toggle('active', b.dataset.page === tab))
+        document.querySelectorAll('.page').forEach((pg) => pg.classList.toggle('active', pg.id === 'page-' + tab))
+        if (updateUrl) pushState()
+    }
+
+    // ── Wiring ──────────────────────────────────────────────────────────────
+
+    function deriveDocTokens() {
+        const docs = num('in-docs')
+        const total = num('in-corpus-tokens')
+        if (isNum(docs) && docs > 0 && isNum(total)) {
+            $('in-doc-tokens').value = Math.round(total / docs)
+        }
+    }
+
+    function refreshVisibility() {
+        $('mode-a-fields').style.display = $('in-mode-a').checked ? '' : 'none'
+        $('mode-b-fields').style.display = $('in-mode-b').checked ? '' : 'none'
+        $('planning-fields').style.display = $('in-planning').checked ? '' : 'none'
+        $('planning-banner').style.display = $('in-planning').checked ? 'block' : 'none'
+        $('measured-ms-fields').style.display = $('in-planning').checked ? 'none' : ''
+        $('in-compression-custom').style.display = $('in-compression').value === 'custom' ? '' : 'none'
+        $('in-model-custom').style.display = $('in-model').value === 'custom-model' ? '' : 'none'
+        const trainCustom = CARTRIDGE_PRICING.gpu.find((g) => g.id === $('in-train-gpu-preset').value)
+        $('in-train-rate-custom').style.display = trainCustom && trainCustom.price === null ? '' : 'none'
+        const infCustom = CARTRIDGE_PRICING.gpu.find((g) => g.id === $('in-inf-gpu-preset').value)
+        $('in-inf-rate-custom').style.display = infCustom && infCustom.price === null ? '' : 'none'
+        $('v-realization').textContent = ($('in-realization').value || '100') + '%'
+    }
+
+    function recompute() {
+        refreshVisibility()
+        const r = computeBreakEven()
+        renderStatus(r)
+        renderMetrics(r)
+        renderCrossoverGraph(r)
+        renderComponents(r)
+        renderStorage()
+        pushState()
+    }
+
+    function init() {
+        initSelects()
+        decodeState()
+        renderAssumptions()
+
+        document
+            .querySelectorAll('.top-tab')
+            .forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.page)))
+        document.querySelectorAll('.graph-toggle button').forEach((b) =>
+            b.addEventListener('click', () => {
+                stGraphMode = b.dataset.mode
+                document.querySelectorAll('.graph-toggle button').forEach((x) => x.classList.toggle('active', x === b))
+                renderStorage()
+            }),
+        )
+        ;['in-docs', 'in-corpus-tokens'].forEach((id) => $(id).addEventListener('input', deriveDocTokens))
+        document.querySelectorAll('input, select').forEach((el) => {
+            el.addEventListener('input', recompute)
+            el.addEventListener('change', recompute)
+        })
+        $('copy-link').addEventListener('click', () => {
+            pushState()
+            navigator.clipboard.writeText(location.href).then(() => {
+                $('copy-link').textContent = 'Copied!'
+                setTimeout(() => ($('copy-link').textContent = 'Copy scenario link'), 1500)
+            })
+        })
+        window.addEventListener('popstate', () => {
+            decodeState()
+            recompute()
+        })
+        recompute()
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init)
+    } else {
+        init()
+    }
+}

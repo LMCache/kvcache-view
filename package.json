@@ -8,7 +8,8 @@
     },
     "scripts": {
         "format": "prettier --write '*.html' '*.js'",
-        "check-format": "prettier --check '*.html' '*.js'"
+        "check-format": "prettier --check '*.html' '*.js'",
+        "test": "node --test cartridge-economics.test.js"
     },
     "devDependencies": {
         "prettier": "^3.1.0"
