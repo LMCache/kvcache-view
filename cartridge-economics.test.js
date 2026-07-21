@@ -24,6 +24,16 @@ test('Qwen3-8B, 1B source tokens, 20x compression, BF16 corpus is 7,050,000 MiB'
     assert.strictEqual(E.formatBytesBinary(bytes), '6.72 TiB')
 })
 
+test('sub-BF16 formats are labeled experimental projections', () => {
+    for (const f of E.KV_FORMATS) {
+        if (f.id === 'bf16') {
+            assert.ok(!f.label.includes('experimental'), 'BF16 is paper-validated')
+        } else {
+            assert.match(f.label, /experimental projection/, `${f.id} must be marked experimental`)
+        }
+    }
+})
+
 test('BF16-K/FP8-V ideal payload is 75% of BF16', () => {
     const bf16 = E.corpusBytes(1e9, 20, 141, 1.0, 1)
     const k16v8 = E.corpusBytes(1e9, 20, 141, 0.75, 1)

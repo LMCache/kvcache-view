@@ -30,12 +30,14 @@ const CART_MODELS = [
     { id: 'custom-model', label: 'Custom', mibPer1K: null },
 ]
 
-// KV serialization formats. The non-BF16 multipliers are ideal payload
-// ratios, not measured codec output sizes.
+// KV serialization formats. The CAS paper validates BF16 only; the non-BF16
+// multipliers are experimental projections of ideal payload ratios, not
+// measured codec output sizes, and selecting one demands a format-specific
+// quality result before any viable verdict.
 const KV_FORMATS = [
-    { id: 'bf16', label: 'BF16 K / BF16 V', multiplier: 1.0 },
-    { id: 'k16v8', label: 'BF16 K / FP8 V (ideal payload)', multiplier: 0.75 },
-    { id: 'fp8', label: 'FP8 K / FP8 V (ideal payload)', multiplier: 0.5 },
+    { id: 'bf16', label: 'BF16 K / BF16 V (paper-validated)', multiplier: 1.0 },
+    { id: 'k16v8', label: 'BF16 K / FP8 V (experimental projection)', multiplier: 0.75 },
+    { id: 'fp8', label: 'FP8 K / FP8 V (experimental projection)', multiplier: 0.5 },
 ]
 
 // Workload constants reported by the CAS paper (arXiv:2606.04557). These are
@@ -563,8 +565,20 @@ if (typeof document !== 'undefined') {
         const lifetime = num('in-lifetime')
         const replicas = num('in-replicas')
 
-        const bytesDoc = cartridgeBytesPerDocument(docTokens, ratio, mib1k, kvMult)
-        const corpus = corpusBytes(totalTokens, ratio, mib1k, kvMult, replicas)
+        // Measured serialized sizes (framing, padding, metadata and frozen
+        // tokens included) override the ideal-payload projection
+        const actualMibDoc = num('in-actual-mib-doc')
+        const actualMib1k = num('in-actual-mib-1k')
+        let bytesDoc = cartridgeBytesPerDocument(docTokens, ratio, mib1k, kvMult)
+        let corpus = corpusBytes(totalTokens, ratio, mib1k, kvMult, replicas)
+        if (isNum(actualMibDoc)) {
+            bytesDoc = actualMibDoc * BYTES_PER_MIB
+            corpus = isNum(docs) && docs > 0 && isNum(replicas) && replicas >= 1 ? bytesDoc * docs * replicas : null
+        } else if (isNum(actualMib1k)) {
+            bytesDoc = cartridgeBytesPerDocument(docTokens, ratio, actualMib1k, 1)
+            corpus = corpusBytes(totalTokens, ratio, actualMib1k, 1, replicas)
+        }
+        const measuredBytes = isNum(actualMibDoc) || isNum(actualMib1k)
         const preset = storagePreset()
         const decGB = corpus !== null ? bytesToDecimalGB(corpus) : 0
         const store = storageComponents(preset, decGB)
@@ -708,6 +722,11 @@ if (typeof document !== 'undefined') {
         const beDocHits = breakEvenDocumentHitsMonth(buildPerDoc, lifetime, storagePerDocMonth, savingPerLoad)
 
         const quality = qualityGate(num('in-q-text'), num('in-q-cart'), num('in-q-tol'))
+        // Sub-BF16 serialization is an experimental projection the paper does
+        // not validate: a viable verdict additionally requires quality scores
+        // measured with that specific format
+        const kvId = kvFmt ? kvFmt.id : null
+        const kvExperimentalUnverified = kvId !== null && kvId !== 'bf16' && !$('in-q-format').checked
 
         return {
             docs,
@@ -767,6 +786,9 @@ if (typeof document !== 'undefined') {
             savingPerLoad,
             beDocHits,
             quality,
+            measuredBytes,
+            kvId,
+            kvExperimentalUnverified,
         }
     }
 
@@ -801,6 +823,12 @@ if (typeof document !== 'undefined') {
                 'Illustrative only — incomplete estimate; measured production costs required. At the assumed ' +
                 `per-path throughputs the sketch would break even at ${formatCount(r.beQueries)} queries/month ` +
                 `vs ${BASELINE_LABELS[r.baseline]}, but assumed throughput is not a measurement.`
+        } else if (r.quality === 'pass' && r.kvExperimentalUnverified) {
+            cls = 'status-warn'
+            text =
+                `Economically positive vs ${BASELINE_LABELS[r.baseline]}, but the selected KV serialization is an ` +
+                'experimental projection the CAS paper does not validate. Re-run the quality benchmark with this ' +
+                'format (and tick the format-specific box) before treating this as viable.'
         } else if (r.quality === 'pass') {
             cls = 'status-good'
             text = `Economically and quality viable vs ${BASELINE_LABELS[r.baseline]} — break-even at ${formatCount(r.beQueries)} queries/month within the ${r.lifetime}-month lifetime.`
@@ -850,7 +878,15 @@ if (typeof document !== 'undefined') {
                 ? '—'
                 : `${formatBytesBinary(r.corpus)} <span class="sub">(${bytesToDecimalGB(r.corpus).toFixed(1)} GB billed)</span>`,
         )
-        setMetric('m-bytes-doc', r.bytesDoc === null ? '—' : formatBytesBinary(r.bytesDoc))
+        setMetric(
+            'm-bytes-doc',
+            r.bytesDoc === null
+                ? '—'
+                : formatBytesBinary(r.bytesDoc) +
+                      (r.measuredBytes
+                          ? ' <span class="sub">(measured)</span>'
+                          : ' <span class="sub">(projected)</span>'),
+        )
         setMetric('m-build-cost', metricUSD(r.buildCost))
         setMetric('m-build-doc', metricUSD(r.buildPerDoc))
         setMetric('m-storage-month', r.storageMonth === null ? BENCH : formatUSD(r.storageMonth) + '/mo')
@@ -1328,6 +1364,8 @@ if (typeof document !== 'undefined') {
         'in-model',
         'in-model-custom',
         'in-kvformat',
+        'in-actual-mib-doc',
+        'in-actual-mib-1k',
         'in-unique',
         'in-queries-month',
         'in-lifetime',
@@ -1396,6 +1434,7 @@ if (typeof document !== 'undefined') {
         'in-load-separate',
         'in-load-included',
         'in-load-overlap',
+        'in-q-format',
     ]
 
     function encodeState() {
