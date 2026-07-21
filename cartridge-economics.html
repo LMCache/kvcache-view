@@ -210,6 +210,36 @@
                 font-size: 12px;
                 font-style: italic;
             }
+            .prov {
+                display: inline-block;
+                font-size: 9px;
+                padding: 1px 5px;
+                border-radius: 4px;
+                margin-left: 4px;
+                vertical-align: middle;
+                letter-spacing: 0.3px;
+                text-transform: uppercase;
+            }
+            .prov-paper {
+                background: rgba(34, 211, 238, 0.15);
+                color: #22d3ee;
+            }
+            .prov-assume {
+                background: rgba(251, 191, 36, 0.15);
+                color: #fbbf24;
+            }
+            .prov-measured {
+                background: rgba(52, 211, 153, 0.15);
+                color: #34d399;
+            }
+            .prov-derived {
+                background: rgba(167, 139, 250, 0.15);
+                color: #a78bfa;
+            }
+            .prov-proj {
+                background: rgba(244, 114, 182, 0.15);
+                color: #f472b6;
+            }
             .metric-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -425,21 +455,43 @@
 
                 <div class="card">
                     <div class="sec-title">Workload</div>
+                    <div class="sec-note">
+                        Provenance badges:
+                        <span class="prov prov-paper">paper</span>
+                        reported in arXiv:2606.04557 &middot;
+                        <span class="prov prov-assume">assumption</span>
+                        calculator default, not a paper value &middot;
+                        <span class="prov prov-derived">derived</span>
+                        computed from other inputs &middot;
+                        <span class="prov prov-measured">measured</span>
+                        your benchmark &middot;
+                        <span class="prov prov-proj">projection</span>
+                        experimental, not validated by the paper.
+                    </div>
                     <div class="g3">
                         <div class="field">
                             <label for="in-docs">Source documents</label>
                             <input type="number" id="in-docs" value="20" min="1" step="1" />
                         </div>
                         <div class="field">
-                            <label for="in-corpus-tokens">Total source tokens</label>
+                            <label for="in-corpus-tokens">
+                                Total source tokens
+                                <span class="prov prov-paper">paper</span>
+                            </label>
                             <input type="number" id="in-corpus-tokens" value="236000" min="0" step="1000" />
                         </div>
                         <div class="field">
-                            <label for="in-doc-tokens">Avg source tokens/document (derived, overridable)</label>
+                            <label for="in-doc-tokens">
+                                Avg source tokens/document (derived, overridable)
+                                <span class="prov prov-derived">derived</span>
+                            </label>
                             <input type="number" id="in-doc-tokens" value="11800" min="0" step="100" />
                         </div>
                         <div class="field">
-                            <label for="in-compression">Compression ratio</label>
+                            <label for="in-compression">
+                                Compression ratio
+                                <span class="prov prov-paper">paper</span>
+                            </label>
                             <select id="in-compression"></select>
                             <input
                                 type="number"
@@ -451,7 +503,10 @@
                             />
                         </div>
                         <div class="field">
-                            <label for="in-model">Model (BF16 KV MiB per 1K Cartridge tokens)</label>
+                            <label for="in-model">
+                                Model (BF16 KV MiB per 1K Cartridge tokens)
+                                <span class="prov prov-paper">paper</span>
+                            </label>
                             <select id="in-model"></select>
                             <input
                                 type="number"
@@ -467,7 +522,10 @@
                             <select id="in-kvformat"></select>
                         </div>
                         <div class="field">
-                            <label for="in-actual-mib-doc">Measured serialized MiB/Cartridge (override)</label>
+                            <label for="in-actual-mib-doc">
+                                Measured serialized MiB/Cartridge (override)
+                                <span class="prov prov-measured">measured</span>
+                            </label>
                             <input
                                 type="number"
                                 id="in-actual-mib-doc"
@@ -477,7 +535,10 @@
                             />
                         </div>
                         <div class="field">
-                            <label for="in-actual-mib-1k">Measured serialized MiB/1K tokens (override)</label>
+                            <label for="in-actual-mib-1k">
+                                Measured serialized MiB/1K tokens (override)
+                                <span class="prov prov-measured">measured</span>
+                            </label>
                             <input
                                 type="number"
                                 id="in-actual-mib-1k"
@@ -487,19 +548,31 @@
                             />
                         </div>
                         <div class="field">
-                            <label for="in-unique">Avg unique Cartridges/query</label>
+                            <label for="in-unique">
+                                Avg unique Cartridges/query
+                                <span class="prov prov-paper">paper</span>
+                            </label>
                             <input type="number" id="in-unique" value="4.4" min="0" step="0.1" />
                         </div>
                         <div class="field">
-                            <label for="in-queries-month">RAG queries/month</label>
+                            <label for="in-queries-month">
+                                RAG queries/month
+                                <span class="prov prov-assume">assumption</span>
+                            </label>
                             <input type="number" id="in-queries-month" value="100000" min="0" step="1000" />
                         </div>
                         <div class="field">
-                            <label for="in-lifetime">Model/Cartridge lifetime (months)</label>
+                            <label for="in-lifetime">
+                                Model/Cartridge lifetime (months)
+                                <span class="prov prov-assume">assumption</span>
+                            </label>
                             <input type="number" id="in-lifetime" value="6" min="1" step="1" />
                         </div>
                         <div class="field">
-                            <label for="in-replicas">Storage replicas</label>
+                            <label for="in-replicas">
+                                Storage replicas
+                                <span class="prov prov-assume">assumption</span>
+                            </label>
                             <input type="number" id="in-replicas" value="1" min="1" step="1" />
                         </div>
                     </div>
@@ -837,7 +910,10 @@
                             <select id="in-storage-preset"></select>
                         </div>
                         <div class="field">
-                            <label for="in-hitrate">Cartridge-object cache hit rate (%)</label>
+                            <label for="in-hitrate">
+                                Cartridge-object cache hit rate (%)
+                                <span class="prov prov-assume">assumption</span>
+                            </label>
                             <input type="number" id="in-hitrate" value="90" min="0" max="100" step="1" />
                         </div>
                         <div class="field">
@@ -1055,6 +1131,8 @@
 
                 <div style="margin-bottom: 16px">
                     <button class="btn" id="copy-link">Copy scenario link</button>
+                    <button class="btn" id="load-paper">Load paper preset (LongHealth)</button>
+                    <button class="btn" id="load-example">Load illustrative example</button>
                 </div>
             </div>
 

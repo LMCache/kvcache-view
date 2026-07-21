@@ -806,10 +806,24 @@ if (typeof document !== 'undefined') {
             r.buildCost === null || r.textVar === null || r.cartComputeVar === null || r.net === null
         let cls, text
         if (benchmarkMissing) {
+            // List only what is actually missing, and say what is already known
+            const missing = []
+            if (r.buildCost === null)
+                missing.push('total construction cost (training GPU-hours + self-study, or components)')
+            if (r.textVar === null || r.cartComputeVar === null)
+                missing.push('matched per-query inference cost for both paths')
+            if (!r.loadIncluded && r.loadCost === null) missing.push('Cartridge load pricing (GET/retrieval/egress)')
+            if (r.quality === 'unknown') missing.push('quality parity scores')
+            const known = []
+            if (r.corpus !== null) known.push(`corpus KV ${formatBytesBinary(r.corpus)}`)
+            if (r.bytesDoc !== null) known.push(`${formatBytesBinary(r.bytesDoc)}/Cartridge`)
+            if (r.storageMonth !== null) known.push(`storage ${formatUSD(r.storageMonth)}/mo`)
             cls = 'status-neutral'
             text =
-                'Benchmark required — enter the measured construction cost and a measured per-query inference ' +
-                'cost for both paths. The CAS paper does not report them, and this calculator refuses to invent them.'
+                'Needed for economics: ' +
+                missing.join('; ') +
+                '. The CAS paper does not report these, and this calculator refuses to invent them.' +
+                (known.length ? ' Known now: ' + known.join(' · ') + '.' : '')
         } else if (r.quality === 'fail') {
             cls = 'status-fail'
             text = 'Quality gate failed — Cartridge accuracy is below the allowed degradation. Economics are moot.'
@@ -861,14 +875,15 @@ if (typeof document !== 'undefined') {
 
     // ── Metrics rendering ───────────────────────────────────────────────────
 
-    const BENCH = '<span class="bench-required">benchmark required</span>'
+    // Dependent results name their missing inputs instead of repeating a
+    // generic "benchmark required" a dozen times
+    const needs = (deps) => `<span class="bench-required">needs ${deps}</span>`
+    const NEEDS_BUILD = 'construction measurements'
+    const NEEDS_INF = 'inference measurements'
+    const NEEDS_ECON = 'construction + inference measurements'
 
     function setMetric(id, html) {
         $(id).innerHTML = html
-    }
-
-    function metricUSD(x) {
-        return x === null ? BENCH : formatUSD(x)
     }
 
     function renderMetrics(r) {
@@ -887,18 +902,21 @@ if (typeof document !== 'undefined') {
                           ? ' <span class="sub">(measured)</span>'
                           : ' <span class="sub">(projected)</span>'),
         )
-        setMetric('m-build-cost', metricUSD(r.buildCost))
-        setMetric('m-build-doc', metricUSD(r.buildPerDoc))
-        setMetric('m-storage-month', r.storageMonth === null ? BENCH : formatUSD(r.storageMonth) + '/mo')
-        setMetric('m-rebuild-month', r.rebuildMonth === null ? BENCH : formatUSD(r.rebuildMonth) + '/mo')
-        setMetric('m-gpu-value', r.gpuValue === null ? BENCH : formatUSD(r.gpuValue) + '/query')
-        setMetric('m-realized', r.realized === null ? BENCH : formatUSD(r.realized) + '/query')
+        setMetric('m-build-cost', r.buildCost === null ? needs(NEEDS_BUILD) : formatUSD(r.buildCost))
+        setMetric('m-build-doc', r.buildPerDoc === null ? needs(NEEDS_BUILD) : formatUSD(r.buildPerDoc))
+        setMetric(
+            'm-storage-month',
+            r.storageMonth === null ? needs('capacity + storage rate') : formatUSD(r.storageMonth) + '/mo',
+        )
+        setMetric('m-rebuild-month', r.rebuildMonth === null ? needs(NEEDS_BUILD) : formatUSD(r.rebuildMonth) + '/mo')
+        setMetric('m-gpu-value', r.gpuValue === null ? needs(NEEDS_INF) : formatUSD(r.gpuValue) + '/query')
+        setMetric('m-realized', r.realized === null ? needs(NEEDS_INF) : formatUSD(r.realized) + '/query')
         setMetric(
             'm-load-cost',
             r.loadIncluded
                 ? '<span class="sub">included in measured path cost</span>'
                 : r.loadCost === null
-                  ? BENCH
+                  ? needs('load pricing')
                   : formatUSD(r.loadCost) + '/query',
         )
         setMetric('m-cold-bytes', r.coldBytes === null ? '—' : formatBytesBinary(r.coldBytes) + '/query')
@@ -925,21 +943,32 @@ if (typeof document !== 'undefined') {
             'm-min-bw',
             r.minBw === null ? '—' : !isFinite(r.minBw) ? 'unreachable' : r.minBw.toFixed(2) + ' GB/s',
         )
-        setMetric('m-net', r.net === null ? BENCH : formatUSD(r.net) + '/query')
+        setMetric('m-net', r.net === null ? needs('inference + load measurements') : formatUSD(r.net) + '/query')
         setMetric(
             'm-breakeven',
-            r.beQueries === null ? BENCH : isFinite(r.beQueries) ? formatCount(r.beQueries) + ' queries/mo' : 'never',
+            r.beQueries === null
+                ? needs(NEEDS_ECON)
+                : isFinite(r.beQueries)
+                  ? formatCount(r.beQueries) + ' queries/mo'
+                  : 'never',
         )
-        setMetric('m-monthly-net', metricUSD(r.monthly))
+        setMetric('m-monthly-net', r.monthly === null ? needs(NEEDS_ECON) : formatUSD(r.monthly))
         setMetric(
             'm-payback',
-            r.payback === null ? BENCH : isFinite(r.payback) ? r.payback.toFixed(1) + ' months' : 'never',
+            r.payback === null ? needs(NEEDS_ECON) : isFinite(r.payback) ? r.payback.toFixed(1) + ' months' : 'never',
         )
-        setMetric('m-roi', r.roi === null ? BENCH : (r.roi * 100).toFixed(0) + '%')
-        setMetric('m-saving-per-load', r.savingPerLoad === null ? BENCH : formatUSD(r.savingPerLoad) + '/load')
+        setMetric('m-roi', r.roi === null ? needs(NEEDS_ECON) : (r.roi * 100).toFixed(0) + '%')
+        setMetric(
+            'm-saving-per-load',
+            r.savingPerLoad === null ? needs(NEEDS_ECON) : formatUSD(r.savingPerLoad) + '/load',
+        )
         setMetric(
             'm-doc-hits',
-            r.beDocHits === null ? BENCH : isFinite(r.beDocHits) ? formatCount(r.beDocHits) + ' loads/mo' : 'never',
+            r.beDocHits === null
+                ? needs(NEEDS_ECON)
+                : isFinite(r.beDocHits)
+                  ? formatCount(r.beDocHits) + ' loads/mo'
+                  : 'never',
         )
 
         // Unmodeled-cost warning
@@ -957,7 +986,7 @@ if (typeof document !== 'undefined') {
                 warn.style.display = 'block'
                 warn.textContent =
                     `${preset.provider} ${preset.storageClass} does not publish: ${missing.join(', ')}. ` +
-                    'These are NOT assumed zero — enter overrides below or load costs stay "benchmark required".'
+                    'These are NOT assumed zero — enter overrides below or the load cost stays unpriced.'
             } else {
                 warn.style.display = 'none'
             }
@@ -1484,6 +1513,77 @@ if (typeof document !== 'undefined') {
         history.replaceState(null, '', url)
     }
 
+    // ── Presets ─────────────────────────────────────────────────────────────
+
+    function setVal(id, v) {
+        const el = $(id)
+        if (el) el.value = v
+    }
+
+    // Paper-derived workload values only: runtime and training fields are
+    // cleared, never filled with invented numbers. Illustrative values live
+    // exclusively in the separate example loader below.
+    function applyPaperPreset() {
+        setVal('in-docs', 20)
+        setVal('in-corpus-tokens', 236000)
+        setVal('in-doc-tokens', 11800)
+        $('in-compression').value = '20'
+        $('in-model').value = 'qwen3-8b'
+        $('in-kvformat').value = 'bf16'
+        setVal('in-unique', 4.4)
+        ;[
+            'in-actual-mib-doc',
+            'in-actual-mib-1k',
+            'in-train-gpus',
+            'in-train-hours',
+            'in-train-gpuhours',
+            'in-selfstudy',
+            'in-other-build',
+            'in-text-ms',
+            'in-cart-ms',
+            'in-text-gpuhours',
+            'in-text-queries',
+            'in-cart-gpuhours',
+            'in-cart-queries',
+            'in-text-usd1k',
+            'in-cart-usd1k',
+            'in-q-text',
+            'in-q-cart',
+        ].forEach((id) => setVal(id, ''))
+        $('in-selfstudy-included').checked = false
+        $('in-q-format').checked = false
+        $('in-planning').checked = false
+        $('in-mode-a').checked = true
+        $('in-mode-b').checked = false
+        $('in-inf-hours').checked = true
+        $('in-inf-1k').checked = false
+        $('in-inf-wall').checked = false
+        $('in-baseline').value = 'uncached'
+    }
+
+    function loadPaperPreset() {
+        applyPaperPreset()
+        recompute()
+    }
+
+    // Invented example numbers to show the mechanics; planning mode caps the
+    // verdict at "illustrative only", so these can never read as measured.
+    function loadIllustrativeExample() {
+        applyPaperPreset()
+        $('in-mode-a').checked = false
+        $('in-mode-b').checked = true
+        setVal('in-train-gpuhours', 40)
+        setVal('in-selfstudy', 25)
+        $('in-inf-hours').checked = false
+        $('in-inf-wall').checked = true
+        $('in-planning').checked = true
+        setVal('in-plan-text-tokens', 9860)
+        setVal('in-plan-cart-tokens', 200)
+        setVal('in-plan-tps-text', 50000)
+        setVal('in-plan-tps-cart', 40000)
+        recompute()
+    }
+
     // ── Tabs ────────────────────────────────────────────────────────────────
 
     let activeTab = 'breakeven'
@@ -1557,6 +1657,8 @@ if (typeof document !== 'undefined') {
             el.addEventListener('input', recompute)
             el.addEventListener('change', recompute)
         })
+        $('load-paper').addEventListener('click', loadPaperPreset)
+        $('load-example').addEventListener('click', loadIllustrativeExample)
         $('copy-link').addEventListener('click', () => {
             pushState()
             navigator.clipboard.writeText(location.href).then(() => {
