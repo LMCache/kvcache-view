@@ -252,17 +252,38 @@ function netSavingQuery(realizedSaving, loadCost) {
     return realizedSaving - loadCost
 }
 
-// Monthly query volume at which the Cartridge path pays for itself within the
-// lifetime H (months). Non-positive per-query net saving never breaks even.
-function breakEvenQueriesMonth(buildCost, lifetimeMonths, storageMonth, netSaving) {
-    if (!isNum(buildCost) || !isNum(lifetimeMonths) || !isNum(storageMonth) || lifetimeMonths <= 0) return null
-    if (!isNum(netSaving) || netSaving <= 0) return Infinity
-    return (buildCost / lifetimeMonths + storageMonth) / netSaving
+// Backblaze-style egress allowance: egress is free up to a multiple of the
+// average monthly stored volume, then charged per GB. Billed at the monthly
+// aggregate, never per query.
+function monthlyEgressOverage(egressGBMonth, storedGB, freeMonthlyStorageMultiple, overageUsdPerGB) {
+    if (!isNum(egressGBMonth) || !isNum(storedGB)) return null
+    if (!isNum(freeMonthlyStorageMultiple) || !isNum(overageUsdPerGB)) return null
+    return Math.max(0, egressGBMonth - freeMonthlyStorageMultiple * storedGB) * overageUsdPerGB
 }
 
-function monthlyNetSaving(queriesMonth, netSaving, storageMonth) {
+// Monthly query volume at which the Cartridge path pays for itself within the
+// lifetime H (months). Non-positive per-query net saving never breaks even.
+// The optional overage argument ({egressGBPerQuery, allowanceGB, usdPerGB})
+// makes the solve piecewise: past the free-egress allowance every additional
+// query also pays overage, so the marginal net saving shrinks.
+function breakEvenQueriesMonth(buildCost, lifetimeMonths, storageMonth, netSaving, overage) {
+    if (!isNum(buildCost) || !isNum(lifetimeMonths) || !isNum(storageMonth) || lifetimeMonths <= 0) return null
+    if (!isNum(netSaving) || netSaving <= 0) return Infinity
+    const q0 = (buildCost / lifetimeMonths + storageMonth) / netSaving
+    if (!overage) return q0
+    const { egressGBPerQuery, allowanceGB, usdPerGB } = overage
+    if (!isNum(egressGBPerQuery) || egressGBPerQuery <= 0 || !isNum(allowanceGB) || !isNum(usdPerGB)) return q0
+    const qAllowance = allowanceGB / egressGBPerQuery
+    if (q0 <= qAllowance) return q0
+    const netBeyond = netSaving - egressGBPerQuery * usdPerGB
+    if (netBeyond <= 0) return Infinity
+    return (buildCost / lifetimeMonths + storageMonth - allowanceGB * usdPerGB) / netBeyond
+}
+
+function monthlyNetSaving(queriesMonth, netSaving, storageMonth, egressOverageMonth) {
     if (!isNum(queriesMonth) || !isNum(netSaving) || !isNum(storageMonth)) return null
-    return queriesMonth * netSaving - storageMonth
+    if (egressOverageMonth !== undefined && egressOverageMonth !== 0 && !isNum(egressOverageMonth)) return null
+    return queriesMonth * netSaving - storageMonth - (isNum(egressOverageMonth) ? egressOverageMonth : 0)
 }
 
 function paybackMonths(buildCost, monthlyNet) {
@@ -271,11 +292,12 @@ function paybackMonths(buildCost, monthlyNet) {
     return buildCost / monthlyNet
 }
 
-function lifetimeRoi(lifetimeMonths, queriesMonth, netSaving, buildCost, storageMonth) {
+function lifetimeRoi(lifetimeMonths, queriesMonth, netSaving, buildCost, storageMonth, egressOverageMonth) {
     if (!isNum(lifetimeMonths) || !isNum(queriesMonth) || !isNum(netSaving)) return null
     if (!isNum(buildCost) || !isNum(storageMonth)) return null
+    if (egressOverageMonth !== undefined && egressOverageMonth !== 0 && !isNum(egressOverageMonth)) return null
     const benefit = lifetimeMonths * queriesMonth * netSaving
-    const cost = buildCost + lifetimeMonths * storageMonth
+    const cost = buildCost + lifetimeMonths * (storageMonth + (isNum(egressOverageMonth) ? egressOverageMonth : 0))
     if (cost <= 0) return null
     return (benefit - cost) / cost
 }
@@ -366,6 +388,7 @@ const CartEcon = {
     minBandwidthGBps,
     loadCostQuery,
     netSavingQuery,
+    monthlyEgressOverage,
     breakEvenQueriesMonth,
     monthlyNetSaving,
     paybackMonths,
@@ -609,10 +632,30 @@ if (typeof document !== 'undefined') {
         const ttftFail = isNum(ttftDelta) && isNum(ttftSlo) && ttftDelta > ttftSlo
         const net = netSavingQuery(realized, loadCost)
 
-        const beQueries = breakEvenQueriesMonth(buildCost, lifetime, storageMonth, net)
-        const monthly = monthlyNetSaving(queriesMonth, net, storageMonth)
+        // Account-level egress allowance (Backblaze: free up to a multiple of
+        // stored volume, then overage), applied at the monthly aggregate
+        const hasAllowance =
+            preset && isNum(preset.egressOverageUsdPerGB) && isNum(preset.egressFreeMonthlyStorageMultiple)
+        let egressOverage = 0
+        let overageParams = null
+        if (hasAllowance && !loadIncluded) {
+            egressOverage = monthlyEgressOverage(
+                coldMonthGB,
+                decGB,
+                preset.egressFreeMonthlyStorageMultiple,
+                preset.egressOverageUsdPerGB,
+            )
+            overageParams = {
+                egressGBPerQuery: isNum(coldBytes) ? bytesToDecimalGB(coldBytes) : null,
+                allowanceGB: preset.egressFreeMonthlyStorageMultiple * decGB,
+                usdPerGB: preset.egressOverageUsdPerGB,
+            }
+        }
+
+        const beQueries = breakEvenQueriesMonth(buildCost, lifetime, storageMonth, net, overageParams)
+        const monthly = monthlyNetSaving(queriesMonth, net, storageMonth, egressOverage)
         const payback = paybackMonths(buildCost, monthly)
-        const roi = lifetimeRoi(lifetime, queriesMonth, net, buildCost, storageMonth)
+        const roi = lifetimeRoi(lifetime, queriesMonth, net, buildCost, storageMonth, egressOverage)
 
         // Complete Cartridge-path variable cost per query (compute + loading)
         const cartVarTotal = isNum(cartComputeVar) && isNum(loadCost) ? cartComputeVar + loadCost : null
@@ -665,6 +708,8 @@ if (typeof document !== 'undefined') {
             ttftDelta,
             ttftSlo,
             ttftFail,
+            hasAllowance,
+            egressOverage,
             net,
             beQueries,
             monthly,
@@ -759,6 +804,14 @@ if (typeof document !== 'undefined') {
         )
         setMetric('m-cold-bytes', r.coldBytes === null ? '—' : formatBytesBinary(r.coldBytes) + '/query')
         setMetric('m-cold-month', r.coldMonthGB === null ? '—' : r.coldMonthGB.toFixed(1) + ' GB/mo')
+        setMetric(
+            'm-egress-overage',
+            !r.hasAllowance
+                ? '<span class="sub">n/a for this provider</span>'
+                : r.egressOverage === null
+                  ? '—'
+                  : formatUSD(r.egressOverage) + '/mo',
+        )
         setMetric(
             'm-cold-ms',
             r.loadIncluded

@@ -151,6 +151,7 @@ const CARTRIDGE_PRICING = {
             retrievalUsdPerGB: 0,
             egressUsdPerGB: 0,
             egressOverageUsdPerGB: 0.01,
+            egressFreeMonthlyStorageMultiple: 3,
             unmodeled: [],
             unit: 'USD/GB-month',
             checkedDate: '2026-07-17',

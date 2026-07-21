@@ -91,6 +91,44 @@ test('break-even, payback and ROI match hand-computed fixtures', () => {
     closeTo(E.breakEvenDocumentHitsMonth(50, 10, 0.1, 0.002), (50 / 10 + 0.1) / 0.002)
 })
 
+test('Backblaze egress overage bills the monthly aggregate past 3x stored volume', () => {
+    const b2 = PRICING.storage.find((s) => s.id === 'backblaze-b2')
+    assert.strictEqual(b2.egressFreeMonthlyStorageMultiple, 3)
+    assert.strictEqual(b2.egressOverageUsdPerGB, 0.01)
+    // 100 GB stored: 300 GB free egress; 500 GB egress pays 200 GB overage
+    closeTo(E.monthlyEgressOverage(500, 100, 3, 0.01), 2)
+    // Under the allowance: zero, not negative
+    assert.strictEqual(E.monthlyEgressOverage(200, 100, 3, 0.01), 0)
+    // Unknown egress volume propagates as null, never zero
+    assert.strictEqual(E.monthlyEgressOverage(null, 100, 3, 0.01), null)
+})
+
+test('break-even solve turns piecewise when the egress allowance binds', () => {
+    // Without overage: (1000/10 + 50) / 0.01 = 15,000 queries/month
+    closeTo(E.breakEvenQueriesMonth(1000, 10, 50, 0.01), 15000)
+    // Allowance so large it never binds: unchanged
+    closeTo(
+        E.breakEvenQueriesMonth(1000, 10, 50, 0.01, { egressGBPerQuery: 0.001, allowanceGB: 100, usdPerGB: 0.01 }),
+        15000,
+    )
+    // Allowance of 10 GB binds at 10,000 queries: marginal net drops to
+    // 0.01 - 0.001*0.01 past it, so break-even moves later, not earlier
+    const be = E.breakEvenQueriesMonth(1000, 10, 50, 0.01, {
+        egressGBPerQuery: 0.001,
+        allowanceGB: 10,
+        usdPerGB: 0.01,
+    })
+    closeTo(be, (100 + 50 - 0.1) / (0.01 - 0.00001))
+    assert.ok(be > 15000)
+    // Overage larger than the net saving: never breaks even
+    assert.strictEqual(
+        E.breakEvenQueriesMonth(1000, 10, 50, 0.01, { egressGBPerQuery: 2, allowanceGB: 10, usdPerGB: 0.01 }),
+        Infinity,
+    )
+    // Monthly net subtracts the aggregate overage in full
+    closeTo(E.monthlyNetSaving(20000, 0.01, 50, 2), 148)
+})
+
 test('RunPod network storage tier boundary at 1 TB', () => {
     const preset = PRICING.storage.find((s) => s.id === 'runpod-network-standard')
     assert.strictEqual(E.storageRateForGB(preset, 999), 0.07)

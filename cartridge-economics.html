@@ -915,6 +915,10 @@
                             <div class="v" id="m-cold-month">—</div>
                         </div>
                         <div class="metric">
+                            <div class="k">Egress overage past free allowance</div>
+                            <div class="v" id="m-egress-overage">—</div>
+                        </div>
+                        <div class="metric">
                             <div class="k">Estimated cold-load latency</div>
                             <div class="v" id="m-cold-ms">—</div>
                         </div>
@@ -1114,6 +1118,14 @@
                         </li>
                         <li>
                             KV-format multipliers below BF16 are ideal payload ratios, not measured codec output sizes.
+                        </li>
+                        <li>
+                            Backblaze free egress up to 3x average monthly stored volume, then $0.01/GB overage, is
+                            modeled at the monthly aggregate. Cloudflare R2 account-level free tiers and billing-unit
+                            rounding are
+                            <strong>not</strong>
+                            modeled &mdash; omitting them can only overstate the Cartridge-side bill, never understate
+                            it. The R2 Infrequent Access 30-day minimum storage duration is unmodeled.
                         </li>
                     </ul>
                 </div>
