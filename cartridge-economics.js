@@ -148,6 +148,21 @@ function buildCostFromGpuHours(gpuHours, usdPerGpuHour, selfStudyCost, otherCost
     return gpuHours * usdPerGpuHour + selfStudyCost + (isNum(otherCost) ? otherCost : 0)
 }
 
+// Corpus churn: failed/preempted training retries inflate the one-time build,
+// and a corpus that retrains a fraction of its documents every month turns
+// part of the build cost into a recurring monthly cost.
+function effectiveBuildCost(buildCost, retryOverheadFraction) {
+    if (!isNum(buildCost)) return null
+    const f = isNum(retryOverheadFraction) ? retryOverheadFraction : 0
+    return buildCost * (1 + f)
+}
+
+function recurringRebuildCostMonth(effectiveBuild, rebuildFractionMonth) {
+    if (!isNum(effectiveBuild)) return null
+    const f = isNum(rebuildFractionMonth) ? rebuildFractionMonth : 0
+    return effectiveBuild * f
+}
+
 // ── Measured per-query path costs ───────────────────────────────────────────
 
 // Primary production measurement: billed GPU-hours divided by completed
@@ -376,6 +391,8 @@ const CartEcon = {
     storageCostMonth,
     buildCostFromMeasuredRun,
     buildCostFromGpuHours,
+    effectiveBuildCost,
+    recurringRebuildCostMonth,
     gpuCostPerQuery,
     costPer1kToPerQuery,
     pathCostDelta,
@@ -455,6 +472,15 @@ if (typeof document !== 'undefined') {
                 .map((r) => ({ value: String(r), label: r + 'x' }))
                 .concat([{ value: 'custom', label: 'Custom' }]),
             '20',
+        )
+        fillSelect(
+            $('in-baseline'),
+            [
+                { value: 'uncached', label: 'Uncached Text RAG (repeated prefill)' },
+                { value: 'kvreuse', label: 'Text RAG + ordinary KV/prefix reuse' },
+                { value: 'custom', label: 'Custom measured baseline' },
+            ],
+            'uncached',
         )
         fillSelect($('in-train-gpu-preset'), gpuPresetOptions(), 'runpod-h200-secure')
         fillSelect($('in-inf-gpu-preset'), gpuPresetOptions(), 'runpod-h100-sxm-community')
@@ -551,13 +577,17 @@ if (typeof document !== 'undefined') {
         const selfStudy = $('in-selfstudy-included').checked ? 0 : num('in-selfstudy')
         const otherBuild = num('in-other-build')
         const modeA = $('in-mode-a').checked
-        const buildCost = modeA
+        const buildBase = modeA
             ? buildCostFromMeasuredRun(num('in-train-gpus'), num('in-train-hours'), trainRate, selfStudy, otherBuild)
             : buildCostFromGpuHours(num('in-train-gpuhours'), trainRate, selfStudy, otherBuild)
+        const buildCost = effectiveBuildCost(buildBase, (num('in-retry-pct') ?? 0) / 100)
+        const rebuildMonth = recurringRebuildCostMonth(buildCost, (num('in-rebuild-pct') ?? 0) / 100)
 
         // Per-query inference cost for both paths, three modes. The measured
         // modes (billed GPU-hours / completed requests, or $ per 1K requests)
         // are primary; wall-latency x TP is a microbenchmark approximation.
+        const baseline = $('in-baseline').value
+        const baselineStorageMonth = num('in-baseline-storage') ?? 0
         const infMode = $('in-inf-1k').checked ? '1k' : $('in-inf-wall').checked ? 'wall' : 'hours'
         const infGpus = num('in-inf-gpus')
         const infRate = gpuRate('in-inf-gpu-preset', 'in-inf-rate-custom')
@@ -652,10 +682,14 @@ if (typeof document !== 'undefined') {
             }
         }
 
-        const beQueries = breakEvenQueriesMonth(buildCost, lifetime, storageMonth, net, overageParams)
-        const monthly = monthlyNetSaving(queriesMonth, net, storageMonth, egressOverage)
+        // Storage and rebuild are deltas against the selected baseline's own
+        // storage/IO bill, not charges unique to the Cartridge side
+        const fixedMonth =
+            storageMonth !== null && rebuildMonth !== null ? storageMonth + rebuildMonth - baselineStorageMonth : null
+        const beQueries = breakEvenQueriesMonth(buildCost, lifetime, fixedMonth, net, overageParams)
+        const monthly = monthlyNetSaving(queriesMonth, net, fixedMonth, egressOverage)
         const payback = paybackMonths(buildCost, monthly)
-        const roi = lifetimeRoi(lifetime, queriesMonth, net, buildCost, storageMonth, egressOverage)
+        const roi = lifetimeRoi(lifetime, queriesMonth, net, buildCost, fixedMonth, egressOverage)
 
         // Complete Cartridge-path variable cost per query (compute + loading)
         const cartVarTotal = isNum(cartComputeVar) && isNum(loadCost) ? cartComputeVar + loadCost : null
@@ -686,6 +720,10 @@ if (typeof document !== 'undefined') {
             preset,
             store,
             storageMonth,
+            baseline,
+            baselineStorageMonth,
+            rebuildMonth,
+            fixedMonth,
             buildCost,
             planning,
             infMode,
@@ -727,6 +765,12 @@ if (typeof document !== 'undefined') {
         }
     }
 
+    const BASELINE_LABELS = {
+        uncached: 'Uncached Text RAG',
+        kvreuse: 'Text RAG + KV reuse',
+        custom: 'Custom baseline',
+    }
+
     // ── Status banner ───────────────────────────────────────────────────────
 
     function renderStatus(r) {
@@ -747,12 +791,18 @@ if (typeof document !== 'undefined') {
             text = 'No economic break-even — per-query net saving is not positive at these inputs.'
         } else if (r.quality === 'pass') {
             cls = 'status-good'
-            text = `Economically and quality viable — break-even at ${formatCount(r.beQueries)} queries/month within the ${r.lifetime}-month lifetime.`
+            text = `Economically and quality viable vs ${BASELINE_LABELS[r.baseline]} — break-even at ${formatCount(r.beQueries)} queries/month within the ${r.lifetime}-month lifetime.`
         } else {
             cls = 'status-warn'
             text =
-                `Economically positive; quality unverified — break-even at ${formatCount(r.beQueries)} queries/month, ` +
-                'but no quality scores entered. Verify accuracy parity before trusting this.'
+                `Economically positive vs ${BASELINE_LABELS[r.baseline]}; quality unverified — break-even at ` +
+                `${formatCount(r.beQueries)} queries/month, but no quality scores entered. ` +
+                'Verify accuracy parity before trusting this.'
+        }
+        if (r.planning && r.baseline !== 'uncached') {
+            text +=
+                ' [Planning mode estimates repeated full prefill, which overstates a KV-reuse or custom baseline — ' +
+                'enter measured all-in costs for this comparison.]'
         }
         if (!benchmarkMissing && r.ttftFail) {
             if (cls === 'status-good') cls = 'status-warn'
@@ -792,6 +842,7 @@ if (typeof document !== 'undefined') {
         setMetric('m-build-cost', metricUSD(r.buildCost))
         setMetric('m-build-doc', metricUSD(r.buildPerDoc))
         setMetric('m-storage-month', r.storageMonth === null ? BENCH : formatUSD(r.storageMonth) + '/mo')
+        setMetric('m-rebuild-month', r.rebuildMonth === null ? BENCH : formatUSD(r.rebuildMonth) + '/mo')
         setMetric('m-gpu-value', r.gpuValue === null ? BENCH : formatUSD(r.gpuValue) + '/query')
         setMetric('m-realized', r.realized === null ? BENCH : formatUSD(r.realized) + '/query')
         setMetric(
@@ -894,8 +945,9 @@ if (typeof document !== 'undefined') {
         }
 
         const Hm = r.lifetime
-        const textLine = (q) => Hm * q * r.textVar
-        const cartLine = (q) => r.buildCost + Hm * r.storageMonth + Hm * q * r.cartVarTotal
+        const rebuild = isNum(r.rebuildMonth) ? r.rebuildMonth : 0
+        const textLine = (q) => Hm * (q * r.textVar + r.baselineStorageMonth)
+        const cartLine = (q) => r.buildCost + Hm * (r.storageMonth + rebuild) + Hm * q * r.cartVarTotal
 
         // Log X range around break-even and selected volume
         let anchors = [r.queriesMonth || 1e4]
@@ -906,7 +958,7 @@ if (typeof document !== 'undefined') {
         const x1 = Math.pow(10, Math.ceil(Math.log10(hi)))
 
         const yMaxRaw = Math.max(textLine(x1), cartLine(x1))
-        const yMinRaw = Math.max(0.01, Math.min(textLine(x0), r.buildCost + Hm * r.storageMonth))
+        const yMinRaw = Math.max(0.01, Math.min(textLine(x0), r.buildCost + Hm * (r.storageMonth + rebuild)))
         const ly0 = Math.floor(Math.log10(yMinRaw))
         const ly1 = Math.ceil(Math.log10(yMaxRaw))
 
@@ -969,10 +1021,11 @@ if (typeof document !== 'undefined') {
         }
 
         // Legend
-        svg += `<line x1="${W - 190}" y1="24" x2="${W - 160}" y2="24" stroke="#fb923c" stroke-width="2.5"/>`
-        svg += `<text x="${W - 154}" y="28" fill="rgba(255,255,255,0.8)" font-size="12">Text RAG</text>`
-        svg += `<line x1="${W - 190}" y1="42" x2="${W - 160}" y2="42" stroke="#22d3ee" stroke-width="2.5"/>`
-        svg += `<text x="${W - 154}" y="46" fill="rgba(255,255,255,0.8)" font-size="12">Cartridge</text>`
+        const baseLabel = BASELINE_LABELS[r.baseline] || 'Text RAG'
+        svg += `<line x1="${W - 240}" y1="24" x2="${W - 210}" y2="24" stroke="#fb923c" stroke-width="2.5"/>`
+        svg += `<text x="${W - 204}" y="28" fill="rgba(255,255,255,0.8)" font-size="12">${baseLabel}</text>`
+        svg += `<line x1="${W - 240}" y1="42" x2="${W - 210}" y2="42" stroke="#22d3ee" stroke-width="2.5"/>`
+        svg += `<text x="${W - 204}" y="46" fill="rgba(255,255,255,0.8)" font-size="12">Cartridge</text>`
         svg += `</svg>`
         if (beNote) svg += `<div class="graph-note">${beNote}</div>`
         if (r.realization < 1) {
@@ -999,12 +1052,18 @@ if (typeof document !== 'undefined') {
         const Hm = r.lifetime
         const Q = r.queriesMonth
         const items = [
-            { label: 'Text-RAG path compute', value: Hm * Q * r.textVar, color: '#fb923c' },
+            { label: `${BASELINE_LABELS[r.baseline]} compute`, value: Hm * Q * r.textVar, color: '#fb923c' },
             { label: 'Cartridge construction', value: r.buildCost, color: '#22d3ee' },
             { label: 'Cartridge storage', value: Hm * r.storageMonth, color: '#a78bfa' },
             { label: 'Cartridge reads', value: Hm * Q * r.loadCost, color: '#f472b6' },
             { label: 'Cartridge path compute', value: Hm * Q * r.cartComputeVar, color: '#34d399' },
         ]
+        if (isNum(r.rebuildMonth) && r.rebuildMonth > 0) {
+            items.push({ label: 'Recurring Cartridge rebuilds', value: Hm * r.rebuildMonth, color: '#fbbf24' })
+        }
+        if (r.baselineStorageMonth > 0) {
+            items.push({ label: 'Baseline-side storage/IO', value: Hm * r.baselineStorageMonth, color: '#f59e0b' })
+        }
         const max = Math.max(...items.map((i) => i.value), 1e-9)
         host.innerHTML =
             `<div class="comp-title">Lifetime cost components at ${formatCount(Q)} queries/month (${Hm} months). Common decode, retrieval and model-hosting costs are excluded from both sides.</div>` +
@@ -1268,6 +1327,10 @@ if (typeof document !== 'undefined') {
         'in-train-rate-custom',
         'in-selfstudy',
         'in-other-build',
+        'in-rebuild-pct',
+        'in-retry-pct',
+        'in-baseline',
+        'in-baseline-storage',
         'in-text-ms',
         'in-cart-ms',
         'in-text-gpuhours',

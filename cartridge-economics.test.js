@@ -188,6 +188,16 @@ test('missing measured values propagate as null (benchmark required), never zero
     assert.strictEqual(E.netSavingPerLoad(0.01, 4.4, null), null)
 })
 
+test('retry overhead and monthly corpus churn feed recurring costs', () => {
+    closeTo(E.effectiveBuildCost(1000, 0.2), 1200)
+    closeTo(E.effectiveBuildCost(1000, 0), 1000)
+    assert.strictEqual(E.effectiveBuildCost(null, 0.2), null)
+    // 10% of the corpus retrained monthly recurs 10% of the build cost
+    closeTo(E.recurringRebuildCostMonth(1200, 0.1), 120)
+    closeTo(E.recurringRebuildCostMonth(1200, 0), 0)
+    assert.strictEqual(E.recurringRebuildCostMonth(null, 0.1), null)
+})
+
 test('measured production cost is billed GPU-hours over completed requests', () => {
     // 10 billed GPU-hours at $2.69 over 20,000 completed requests
     closeTo(E.gpuCostPerQuery(10, 2.69, 20000), 26.9 / 20000)

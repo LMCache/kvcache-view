@@ -559,6 +559,21 @@
                             <input type="number" id="in-other-build" placeholder="0" min="0" step="1" />
                         </div>
                     </div>
+                    <div class="g3" style="margin-top: 10px">
+                        <div class="field">
+                            <label for="in-retry-pct">Failed/preempted training retry overhead (%)</label>
+                            <input type="number" id="in-retry-pct" value="0" min="0" step="1" />
+                        </div>
+                        <div class="field">
+                            <label for="in-rebuild-pct">Corpus retrained per month (%)</label>
+                            <input type="number" id="in-rebuild-pct" value="0" min="0" step="1" />
+                        </div>
+                    </div>
+                    <div class="sec-note" style="margin-top: 8px">
+                        Frequently updated corpora retrain a fraction of their Cartridges every month; that fraction of
+                        the (retry-inflated) build cost recurs monthly. Model/checkpoint migrations that invalidate
+                        every Cartridge are the lifetime input above.
+                    </div>
                 </div>
 
                 <div class="card">
@@ -571,6 +586,17 @@
                         100x reduction in GPU time. Record matched metadata with every run: model/checkpoint, engine +
                         commit, token counts, concurrency and batching policy, completed requests, p50/p95 TTFT,
                         throughput and quality score.
+                    </div>
+                    <div class="g3" style="margin-bottom: 10px">
+                        <div class="field">
+                            <label for="in-baseline">Baseline for comparison</label>
+                            <select id="in-baseline"></select>
+                        </div>
+                    </div>
+                    <div class="sec-note">
+                        Uncached Text RAG (repeated full prefill) is a valid experiment but a deliberately weak
+                        deployment baseline. On a stack with ordinary KV/prefix reuse (e.g. LMCache), measure that
+                        baseline all-in instead of assuming arbitrary retrieved chunk combinations compose safely.
                     </div>
                     <div class="radio-row">
                         <label>
@@ -783,6 +809,16 @@
                             <label for="in-storage-rate">Custom storage $/GB-month (override)</label>
                             <input type="number" id="in-storage-rate" placeholder="use preset" min="0" step="0.001" />
                         </div>
+                        <div class="field">
+                            <label for="in-baseline-storage">Baseline-side storage/IO ($/month)</label>
+                            <input
+                                type="number"
+                                id="in-baseline-storage"
+                                placeholder="0 — common costs cancel"
+                                min="0"
+                                step="0.01"
+                            />
+                        </div>
                     </div>
                     <div id="load-separate-fields">
                         <div class="g3" style="margin-top: 10px">
@@ -893,6 +929,10 @@
                         <div class="metric">
                             <div class="k">Storage cost</div>
                             <div class="v" id="m-storage-month">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Recurring rebuild cost</div>
+                            <div class="v" id="m-rebuild-month">—</div>
                         </div>
                         <div class="metric">
                             <div class="k">Compute cost delta/query (signed)</div>
