@@ -132,6 +132,15 @@ test('cartridge-economics.html has no duplicate element IDs', () => {
     assert.ok(ids.length > 30, 'expected a substantial set of element ids')
 })
 
+test('blank self-study cost blocks construction cost instead of becoming $0', () => {
+    assert.strictEqual(E.buildCostFromGpuHours(100, 2.69, null, 0), null)
+    assert.strictEqual(E.buildCostFromMeasuredRun(8, 10, 2.69, null, 0), null)
+    // Explicit zero (user-entered or "included in measured total") is allowed
+    closeTo(E.buildCostFromGpuHours(100, 2.69, 0, 0), 269)
+    closeTo(E.buildCostFromGpuHours(100, 2.69, 40, null), 309)
+    closeTo(E.buildCostFromGpuHours(100, 2.69, 40, 11), 320)
+})
+
 test('missing measured values propagate as null (benchmark required), never zero', () => {
     assert.strictEqual(E.buildCostFromMeasuredRun(null, 10, 2.69, 0, 0), null)
     assert.strictEqual(E.buildCostFromGpuHours(null, 2.69, 0, 0), null)

@@ -131,14 +131,21 @@ function storageCostMonth(bytes, usdPerGBMonth) {
 
 // CAS trains Cartridge pools jointly, so the corpus-level cost is primary and
 // the per-document number is an average, not a marginal cost.
+//
+// The paper identifies self-study question generation and target-model
+// inference as part of the principal offline construction cost, so
+// selfStudyCost is a required component: a blank value blocks the whole
+// construction cost instead of silently becoming $0. Callers pass 0 only
+// when the user explicitly enters zero or marks it included in the
+// measured total. otherCost stays genuinely optional.
 function buildCostFromMeasuredRun(gpuCount, wallHours, usdPerGpuHour, selfStudyCost, otherCost) {
     if (!isNum(gpuCount) || !isNum(wallHours) || !isNum(usdPerGpuHour)) return null
     return buildCostFromGpuHours(gpuCount * wallHours, usdPerGpuHour, selfStudyCost, otherCost)
 }
 
 function buildCostFromGpuHours(gpuHours, usdPerGpuHour, selfStudyCost, otherCost) {
-    if (!isNum(gpuHours) || !isNum(usdPerGpuHour)) return null
-    return gpuHours * usdPerGpuHour + (isNum(selfStudyCost) ? selfStudyCost : 0) + (isNum(otherCost) ? otherCost : 0)
+    if (!isNum(gpuHours) || !isNum(usdPerGpuHour) || !isNum(selfStudyCost)) return null
+    return gpuHours * usdPerGpuHour + selfStudyCost + (isNum(otherCost) ? otherCost : 0)
 }
 
 // ── Per-query inference savings ─────────────────────────────────────────────
@@ -457,9 +464,11 @@ if (typeof document !== 'undefined') {
         const store = storageComponents(preset, decGB)
         const storageMonth = corpus !== null ? storageCostMonth(corpus, store.usdPerGBMonth) : null
 
-        // Construction cost
+        // Construction cost. Self-study is a required component: blank blocks
+        // the construction cost unless it is marked included in the measured
+        // total (which resolves it to zero without double counting).
         const trainRate = gpuRate('in-train-gpu-preset', 'in-train-rate-custom')
-        const selfStudy = num('in-selfstudy')
+        const selfStudy = $('in-selfstudy-included').checked ? 0 : num('in-selfstudy')
         const otherBuild = num('in-other-build')
         const modeA = $('in-mode-a').checked
         const buildCost = modeA
@@ -1083,7 +1092,7 @@ if (typeof document !== 'undefined') {
         'st-hitrate',
         'st-storage-preset',
     ]
-    const STATE_CHECKS = ['in-mode-a', 'in-mode-b', 'in-planning']
+    const STATE_CHECKS = ['in-mode-a', 'in-mode-b', 'in-planning', 'in-selfstudy-included']
 
     function encodeState() {
         const p = new URLSearchParams()

@@ -490,7 +490,9 @@
                         CAS trains Cartridge pools jointly, so enter the measured cost of the whole corpus run; the
                         per-document number shown in results is an average, not a marginal cost. The paper reports
                         H200/B200 hardware and optimizer configuration but not wall-clock time or GPU-hours &mdash;
-                        empty fields stay &ldquo;benchmark required&rdquo;.
+                        empty fields stay &ldquo;benchmark required&rdquo;. Self-study question generation and
+                        target-model inference are part of the principal offline cost per the paper: a blank self-study
+                        field blocks the construction cost rather than counting as $0.
                     </div>
                     <div class="radio-row">
                         <label>
@@ -544,8 +546,12 @@
                             />
                         </div>
                         <div class="field">
-                            <label for="in-selfstudy">Self-study generation cost ($)</label>
-                            <input type="number" id="in-selfstudy" placeholder="0" min="0" step="1" />
+                            <label for="in-selfstudy">Self-study generation + inference cost ($)</label>
+                            <input type="number" id="in-selfstudy" placeholder="benchmark required" min="0" step="1" />
+                            <label style="margin-top: 4px; cursor: pointer">
+                                <input type="checkbox" id="in-selfstudy-included" style="accent-color: #a78bfa" />
+                                Included in measured total above
+                            </label>
                         </div>
                         <div class="field">
                             <label for="in-other-build">Other one-time cost ($)</label>
