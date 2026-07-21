@@ -187,17 +187,86 @@ It is inspired by *Cartridges at Scale: Training Modular KV Caches over Large
 Document Collections* (Hardalov, Iglesias, de Gispert — Amazon AGI Lab,
 [arXiv:2606.04557](https://arxiv.org/pdf/2606.04557)), which trains pools of
 per-document Cartridges and selects them with chunk retrieval, matching Text-RAG
-quality with 3-4x fewer prompt tokens. The paper reports training hardware and
-optimizer configuration but not GPU-hours or wall-clock time, so the calculator's
-primary mode requires *measured* training GPU-hours and prefill wall times — it
-never derives dollar savings from the O(n²) attention argument alone. A clearly
-marked illustrative planning mode is available for what-if exploration.
+quality with 3-4x fewer prompt tokens.
 
-The calculator models one-time construction cost, persistent storage (with a
-static, dated, sourced pricing snapshot in `cartridge-pricing.js`), per-query
-Cartridge loading, realized vs theoretical GPU-time savings, model/checkpoint
-lifetime, and a quality-parity gate. The pure calculation functions are unit
-tested under Node (`make test`).
+### Cost equations
+
+All capacity math is in bytes (binary units for display, decimal GB for cloud
+billing). With `H` the Cartridge lifetime in months and `Q` the monthly query
+volume:
+
+```
+cartridge_tokens        = source_tokens / compression_ratio
+cartridge_bytes         = cartridge_tokens/1000 * MiB_per_1K * format_multiplier
+build_cost              = (gpu_hours * $/gpu_hour + self_study + other) * (1 + retry_overhead)
+rebuild_cost_month      = build_cost * corpus_fraction_retrained_month
+
+path_cost_per_query     = billed_gpu_hours * $/gpu_hour / completed_requests   (primary)
+compute_delta           = baseline_cost_query - cartridge_cost_query            (signed)
+load_cost_query         = cold_objects * $/GET + cold_GB * ($/GB retrieval + $/GB egress)
+net_saving_query        = realization * compute_delta - load_cost_query
+
+fixed_month             = storage_month + rebuild_cost_month - baseline_storage_month
+egress_overage_month    = max(0, egress_GB_month - 3 * stored_GB) * $/GB        (Backblaze)
+break_even_queries      = (build_cost/H + fixed_month) / net_saving_query
+                          (piecewise once the egress allowance binds)
+
+baseline_lifetime_cost  = H * (Q * baseline_cost_query + baseline_storage_month)
+cartridge_lifetime_cost = build_cost + H * (storage_month + rebuild_cost_month
+                          + Q * (cartridge_cost_query + load_cost_query))
+```
+
+The crossover graph plots the two complete lifetime path costs; it never
+reconstructs the Cartridge line as "baseline minus a delta", and it refuses to
+put non-positive dollar values on its logarithmic axis. All deltas are signed:
+a Cartridge path slower or dearer than the baseline shows up as a loss.
+
+### Measurement boundaries and methodology
+
+The primary inference-cost mode is billed GPU-hours divided by completed
+matched requests per path (or a directly measured $ per 1K requests). Wall
+latency × TP size × rate survives only as a labeled microbenchmark
+approximation, because under continuous batching many requests share each
+GPU-second — per-request wall latency is not exclusive GPU time, and treating
+it as such overstates both paths. Matched runs should record model/checkpoint,
+engine + commit, token counts, concurrency and batching policy, completed
+requests, p50/p95 TTFT, throughput and a quality score; `cartridge-benchmarks.js`
+is the schema for those records, including invalid runs and their defects.
+
+Cartridge loading has an explicit boundary: either it is included in the
+measured Cartridge-path cost and latency, or it is modeled separately (hit
+rate, storage-to-GPU bandwidth, fixed per-object latency, GET/retrieval/egress
+prices) — never both, so it cannot be double-counted or silently dropped.
+
+### Baselines
+
+The comparison baseline is selectable: *Uncached Text RAG* (repeated full
+prefill — a valid experiment but a deliberately weak deployment baseline),
+*Text RAG with ordinary KV/prefix reuse* (prefer measured all-in costs), or a
+*custom measured baseline*. Storage is treated as a delta between the baseline
+and Cartridge paths rather than charged only to Cartridges.
+
+### What comes from the paper, and what does not
+
+From arXiv:2606.04557: the BF16 KV MiB-per-1K-token table (Qwen3-0.6B/8B/32B),
+LongHealth workload shapes (9,860 Text-RAG tokens/query at k=10, 2,673 and 566
+Cartridge tokens/query at 20x/100x), average unique Cartridges per query, and
+the training recipe (H200/B200, 80 epochs, ~12,400-14,160 optimizer steps,
+batch 128, sequence 8,192). NOT from the paper: training GPU-hours or
+wall-clock time, self-study generation cost, prefill wall times, production
+per-request costs, and every calculator default marked with an *assumption*
+badge (90% hit rate, 6-month lifetime, 100K queries/month). Sub-BF16
+serialization formats are experimental projections the paper does not
+validate; selecting one requires a format-specific quality result before any
+viable verdict. Planning mode never emits a viable verdict at all — it is an
+illustrative bound.
+
+Storage and GPU prices are a static, dated, sourced snapshot in
+`cartridge-pricing.js`; Backblaze's free-egress allowance is modeled at the
+monthly aggregate, while R2 account-level free tiers and billing rounding are
+deliberately unmodeled (omitting them can only overstate Cartridge-side
+costs). The pure calculation functions are unit tested under Node
+(`make test`).
 
 ## Why These Optimizations Matter
 
@@ -255,6 +324,7 @@ kvcache-view/
 ├── cartridge-economics.html      # Cartridge break-even calculator (arXiv:2606.04557)
 ├── cartridge-economics.js        # Cartridge economics model + UI logic
 ├── cartridge-pricing.js          # Dated GPU/storage pricing snapshot
+├── cartridge-benchmarks.js       # Benchmark records with validity + defects
 ├── cartridge-economics.test.js   # Node unit tests for the economics model
 ├── manifest.json                 # PWA manifest (app metadata)
 ├── sw.js                         # Service worker (offline support)
