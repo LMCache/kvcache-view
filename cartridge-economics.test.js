@@ -160,6 +160,38 @@ test('every pricing preset carries a checked date and source URL', () => {
     }
 })
 
+test('benchmark records carry validity, and invalid runs never become presets', () => {
+    const B = require('./cartridge-benchmarks.js')
+    assert.ok(B.schemaVersion >= 1)
+    assert.ok(Array.isArray(B.records))
+    for (const rec of B.records) {
+        assert.ok(rec.id, 'record id')
+        assert.ok(['valid', 'exploratory', 'invalid'].includes(rec.validity), `${rec.id} validity`)
+        assert.ok(typeof rec.notes === 'string' && rec.notes.length > 0, `${rec.id} notes`)
+    }
+    // The known 0.6B run with the train/eval frozen-sink mismatch is recorded
+    // as invalid and its 0% score must never seed the calculator
+    const bad = B.records.find((r) => r.id.includes('qwen3-0.6b'))
+    assert.ok(bad, '0.6B run is recorded rather than silently dropped')
+    assert.strictEqual(bad.validity, 'invalid')
+    const econ = fs.readFileSync(path.join(__dirname, 'cartridge-economics.js'), 'utf8')
+    for (const rec of B.records.filter((r) => r.validity !== 'valid')) {
+        assert.ok(!econ.includes(rec.id), `non-valid record ${rec.id} must not be referenced by the calculator`)
+    }
+})
+
+test('service worker caches the cartridge assets', () => {
+    const sw = fs.readFileSync(path.join(__dirname, 'sw.js'), 'utf8')
+    for (const asset of [
+        './cartridge-economics.html',
+        './cartridge-economics.js',
+        './cartridge-pricing.js',
+        './cartridge-benchmarks.js',
+    ]) {
+        assert.ok(sw.includes(`'${asset}'`), `sw.js caches ${asset}`)
+    }
+})
+
 test('index.html links the new page and its thumbnail exists', () => {
     const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
     assert.ok(index.includes('cartridge-economics.html'), 'index.html links cartridge-economics.html')

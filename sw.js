@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kvcache-view-v3'
+const CACHE_NAME = 'kvcache-view-v4'
 const urlsToCache = [
     './',
     './index.html',
@@ -8,6 +8,7 @@ const urlsToCache = [
     './cartridge-economics.html',
     './cartridge-economics.js',
     './cartridge-pricing.js',
+    './cartridge-benchmarks.js',
     './thumbnails/cartridge-economics.png',
     './manifest.json',
     './icon-192.png',
