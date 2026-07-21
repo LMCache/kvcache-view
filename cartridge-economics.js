@@ -143,9 +143,12 @@ function buildCostFromGpuHours(gpuHours, usdPerGpuHour, selfStudyCost, otherCost
 
 // ── Per-query inference savings ─────────────────────────────────────────────
 
+// Signed delta: a Cartridge path slower than Text RAG must surface as a
+// negative saving so regressions propagate into every economic result
+// instead of being silently clamped to "no saving".
 function prefillGpuMsSaved(textRagPrefillWallMs, cartridgePrefillWallMs, inferenceGpuCount) {
     if (!isNum(textRagPrefillWallMs) || !isNum(cartridgePrefillWallMs) || !isNum(inferenceGpuCount)) return null
-    return Math.max(0, textRagPrefillWallMs - cartridgePrefillWallMs) * inferenceGpuCount
+    return (textRagPrefillWallMs - cartridgePrefillWallMs) * inferenceGpuCount
 }
 
 function gpuTimeValueSavedQuery(prefillMsSaved, decodeGpuMsSaved, inferenceUsdPerGpuHour) {

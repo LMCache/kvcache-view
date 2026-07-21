@@ -149,7 +149,28 @@ test('quality gate distinguishes unknown, pass and fail', () => {
     assert.strictEqual(E.qualityGate(60, 60, 0), 'pass')
 })
 
-test('prefill saving floors at zero when the Cartridge path is slower', () => {
-    assert.strictEqual(E.prefillGpuMsSaved(100, 150, 2), 0)
+test('prefill saving is signed: a slower Cartridge path is a loss, not zero', () => {
+    // Text 100 ms, Cartridge 150 ms: -50 GPU-ms per GPU
+    assert.strictEqual(E.prefillGpuMsSaved(100, 150, 1), -50)
+    assert.strictEqual(E.prefillGpuMsSaved(100, 150, 2), -100)
     assert.strictEqual(E.prefillGpuMsSaved(150, 100, 2), 100)
+})
+
+test('negative per-query savings never break even and hit the monthly net in full', () => {
+    const msSaved = E.prefillGpuMsSaved(100, 150, 1)
+    const gpuValue = E.gpuTimeValueSavedQuery(msSaved, 0, 3.6)
+    closeTo(gpuValue, (-50 / 3600000) * 3.6)
+    const net = E.netSavingQuery(E.realizedComputeSavingQuery(gpuValue, 1), 0)
+    assert.ok(net < 0)
+    assert.strictEqual(E.breakEvenQueriesMonth(1000, 6, 10, net), Infinity)
+    // Monthly net reflects the full negative delta, not a floor at zero
+    closeTo(E.monthlyNetSaving(100000, net, 10), 100000 * net - 10)
+    assert.ok(E.monthlyNetSaving(100000, net, 10) < 0)
+})
+
+test('decode delta is signed too', () => {
+    // +100 prefill ms saved, -200 decode ms lost: net negative GPU-time value
+    const v = E.gpuTimeValueSavedQuery(100, -200, 3.6)
+    closeTo(v, (-100 / 3600000) * 3.6)
+    assert.ok(v < 0)
 })
