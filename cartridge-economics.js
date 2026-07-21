@@ -148,7 +148,29 @@ function buildCostFromGpuHours(gpuHours, usdPerGpuHour, selfStudyCost, otherCost
     return gpuHours * usdPerGpuHour + selfStudyCost + (isNum(otherCost) ? otherCost : 0)
 }
 
-// ── Per-query inference savings ─────────────────────────────────────────────
+// ── Measured per-query path costs ───────────────────────────────────────────
+
+// Primary production measurement: billed GPU-hours divided by completed
+// matched requests. Under continuous batching many requests share each
+// GPU-second, so per-request wall latency times TP size is NOT exclusive GPU
+// time; it survives below only as a labeled microbenchmark approximation.
+function gpuCostPerQuery(totalGpuHours, usdPerGpuHour, completedQueries) {
+    if (!isNum(totalGpuHours) || !isNum(usdPerGpuHour)) return null
+    if (!isNum(completedQueries) || completedQueries <= 0) return null
+    return (totalGpuHours * usdPerGpuHour) / completedQueries
+}
+
+function costPer1kToPerQuery(usdPer1kRequests) {
+    return isNum(usdPer1kRequests) ? usdPer1kRequests / 1000 : null
+}
+
+// Signed per-query compute delta between the baseline and Cartridge paths.
+function pathCostDelta(baselineCostQuery, cartridgeCostQuery) {
+    if (!isNum(baselineCostQuery) || !isNum(cartridgeCostQuery)) return null
+    return baselineCostQuery - cartridgeCostQuery
+}
+
+// ── Per-query inference savings (wall-latency microbenchmark) ───────────────
 
 // Signed delta: a Cartridge path slower than Text RAG must surface as a
 // negative saving so regressions propagate into every economic result
@@ -303,6 +325,9 @@ const CartEcon = {
     storageCostMonth,
     buildCostFromMeasuredRun,
     buildCostFromGpuHours,
+    gpuCostPerQuery,
+    costPer1kToPerQuery,
+    pathCostDelta,
     prefillGpuMsSaved,
     gpuTimeValueSavedQuery,
     realizedComputeSavingQuery,
@@ -475,26 +500,49 @@ if (typeof document !== 'undefined') {
             ? buildCostFromMeasuredRun(num('in-train-gpus'), num('in-train-hours'), trainRate, selfStudy, otherBuild)
             : buildCostFromGpuHours(num('in-train-gpuhours'), trainRate, selfStudy, otherBuild)
 
-        // Prefill wall times: measured, or illustrative planning assumption
-        const planning = $('in-planning').checked
-        let textMs = num('in-text-ms')
-        let cartMs = num('in-cart-ms')
-        if (planning) {
-            const tps = num('in-plan-tps')
-            const textTok = num('in-plan-text-tokens')
-            const cartTok = num('in-plan-cart-tokens')
-            textMs = isNum(tps) && isNum(textTok) && tps > 0 ? (textTok / tps) * 1000 : null
-            cartMs = isNum(tps) && isNum(cartTok) && tps > 0 ? (cartTok / tps) * 1000 : null
-        }
-
+        // Per-query inference cost for both paths, three modes. The measured
+        // modes (billed GPU-hours / completed requests, or $ per 1K requests)
+        // are primary; wall-latency x TP is a microbenchmark approximation.
+        const infMode = $('in-inf-1k').checked ? '1k' : $('in-inf-wall').checked ? 'wall' : 'hours'
         const infGpus = num('in-inf-gpus')
         const infRate = gpuRate('in-inf-gpu-preset', 'in-inf-rate-custom')
+        const cartRateOverride = num('in-inf-rate-cart')
+        const cartRate = cartRateOverride !== null ? cartRateOverride : infRate
         const decodeSaved = num('in-decode-ms')
         const realization = (num('in-realization') ?? 100) / 100
         const hitRate = (num('in-hitrate') ?? 0) / 100
+        const planning = infMode === 'wall' && $('in-planning').checked
 
-        const msSaved = prefillGpuMsSaved(textMs, cartMs, infGpus)
-        const gpuValue = gpuTimeValueSavedQuery(msSaved, decodeSaved, infRate)
+        let textMs = num('in-text-ms')
+        let cartMs = num('in-cart-ms')
+        let textVar = null // $/query baseline-path compute
+        let cartComputeVar = null // $/query Cartridge-path compute, excluding loading
+        if (infMode === 'hours') {
+            textVar = gpuCostPerQuery(num('in-text-gpuhours'), infRate, num('in-text-queries'))
+            cartComputeVar = gpuCostPerQuery(num('in-cart-gpuhours'), cartRate, num('in-cart-queries'))
+        } else if (infMode === '1k') {
+            textVar = costPer1kToPerQuery(num('in-text-usd1k'))
+            cartComputeVar = costPer1kToPerQuery(num('in-cart-usd1k'))
+        } else {
+            if (planning) {
+                const tps = num('in-plan-tps')
+                const textTok = num('in-plan-text-tokens')
+                const cartTok = num('in-plan-cart-tokens')
+                textMs = isNum(tps) && isNum(textTok) && tps > 0 ? (textTok / tps) * 1000 : null
+                cartMs = isNum(tps) && isNum(cartTok) && tps > 0 ? (cartTok / tps) * 1000 : null
+            }
+            textVar =
+                isNum(textMs) && isNum(infGpus) && isNum(infRate)
+                    ? ((textMs * infGpus) / MS_PER_GPU_HOUR) * infRate
+                    : null
+            const decodeValue = isNum(decodeSaved) && isNum(infRate) ? (decodeSaved / MS_PER_GPU_HOUR) * infRate : 0
+            cartComputeVar =
+                isNum(cartMs) && isNum(infGpus) && isNum(infRate)
+                    ? ((cartMs * infGpus) / MS_PER_GPU_HOUR) * infRate - decodeValue
+                    : null
+        }
+
+        const gpuValue = pathCostDelta(textVar, cartComputeVar)
         const realized = realizedComputeSavingQuery(gpuValue, realization)
         const loadCost = loadCostQuery(
             bytesDoc,
@@ -511,9 +559,8 @@ if (typeof document !== 'undefined') {
         const payback = paybackMonths(buildCost, monthly)
         const roi = lifetimeRoi(lifetime, queriesMonth, net, buildCost, storageMonth)
 
-        // Per-query cost of the text-RAG prefill (for the graph)
-        const textCostQuery =
-            isNum(textMs) && isNum(infGpus) && isNum(infRate) ? ((textMs * infGpus) / MS_PER_GPU_HOUR) * infRate : null
+        // Complete Cartridge-path variable cost per query (compute + loading)
+        const cartVarTotal = isNum(cartComputeVar) && isNum(loadCost) ? cartComputeVar + loadCost : null
 
         // Per-document view
         const buildPerDoc = isNum(buildCost) && isNum(docs) && docs > 0 ? buildCost / docs : null
@@ -543,11 +590,11 @@ if (typeof document !== 'undefined') {
             storageMonth,
             buildCost,
             planning,
+            infMode,
             textMs,
             cartMs,
             infGpus,
             infRate,
-            msSaved,
             gpuValue,
             realization,
             realized,
@@ -558,7 +605,9 @@ if (typeof document !== 'undefined') {
             monthly,
             payback,
             roi,
-            textCostQuery,
+            textVar,
+            cartComputeVar,
+            cartVarTotal,
             buildPerDoc,
             storagePerDocMonth,
             perLoadCost,
@@ -572,13 +621,14 @@ if (typeof document !== 'undefined') {
 
     function renderStatus(r) {
         const el = $('be-status')
-        const benchmarkMissing = r.buildCost === null || r.textMs === null || r.cartMs === null || r.net === null
+        const benchmarkMissing =
+            r.buildCost === null || r.textVar === null || r.cartComputeVar === null || r.net === null
         let cls, text
         if (benchmarkMissing) {
             cls = 'status-neutral'
             text =
-                'Benchmark required — enter measured training GPU-hours and measured prefill wall times. ' +
-                'The CAS paper does not report them, and this calculator refuses to invent them.'
+                'Benchmark required — enter the measured construction cost and a measured per-query inference ' +
+                'cost for both paths. The CAS paper does not report them, and this calculator refuses to invent them.'
         } else if (r.quality === 'fail') {
             cls = 'status-fail'
             text = 'Quality gate failed — Cartridge accuracy is below the allowed degradation. Economics are moot.'
@@ -596,6 +646,10 @@ if (typeof document !== 'undefined') {
         }
         if (r.planning && !benchmarkMissing) {
             text += ' [Illustrative planning assumption — not measured, not paper results.]'
+        } else if (r.infMode === 'wall' && !benchmarkMissing) {
+            text +=
+                ' [Wall-latency microbenchmark approximation — under continuous batching wall latency × TP ' +
+                'is not exclusive GPU time; prefer measured GPU-hours per completed request.]'
         }
         el.className = 'status-banner ' + cls
         el.textContent = text
@@ -679,18 +733,24 @@ if (typeof document !== 'undefined') {
         const usable =
             r.buildCost !== null &&
             r.storageMonth !== null &&
-            r.textCostQuery !== null &&
-            r.net !== null &&
+            r.textVar !== null &&
+            r.cartVarTotal !== null &&
             isNum(r.lifetime)
         if (!usable) {
-            host.innerHTML = `<div class="graph-empty">Crossover graph needs measured training cost and prefill times (or planning-assumption mode).</div>`
+            host.innerHTML = `<div class="graph-empty">Crossover graph needs the measured construction cost and a measured per-query inference cost for both paths.</div>`
+            return
+        }
+        // Complete measured path costs only: never reconstruct the Cartridge
+        // line from the Text line minus a delta, and never put non-positive
+        // dollar values on a logarithmic cost axis.
+        if (r.textVar <= 0 || r.cartVarTotal < 0) {
+            host.innerHTML = `<div class="graph-empty">Cannot plot: a non-positive per-query path cost does not fit the logarithmic cost axis. A negative complete Cartridge-path cost usually means the decode adjustment exceeds the measured compute — re-measure the path instead.</div>`
             return
         }
 
         const Hm = r.lifetime
-        const cartVarQuery = r.textCostQuery - r.net
-        const textLine = (q) => Hm * q * r.textCostQuery
-        const cartLine = (q) => r.buildCost + Hm * r.storageMonth + Hm * q * cartVarQuery
+        const textLine = (q) => Hm * q * r.textVar
+        const cartLine = (q) => r.buildCost + Hm * r.storageMonth + Hm * q * r.cartVarTotal
 
         // Log X range around break-even and selected volume
         let anchors = [r.queriesMonth || 1e4]
@@ -770,6 +830,9 @@ if (typeof document !== 'undefined') {
         svg += `<text x="${W - 154}" y="46" fill="rgba(255,255,255,0.8)" font-size="12">Cartridge</text>`
         svg += `</svg>`
         if (beNote) svg += `<div class="graph-note">${beNote}</div>`
+        if (r.realization < 1) {
+            svg += `<div class="graph-note">Lines plot billed path costs; the break-even marker uses realized cash saving (${Math.round(r.realization * 100)}% realization).</div>`
+        }
         host.innerHTML = svg
     }
 
@@ -778,10 +841,11 @@ if (typeof document !== 'undefined') {
     function renderComponents(r) {
         const host = $('be-components')
         if (
-            r.textCostQuery === null ||
+            r.textVar === null ||
             r.buildCost === null ||
             r.storageMonth === null ||
-            r.net === null ||
+            r.cartComputeVar === null ||
+            r.loadCost === null ||
             !isNum(r.queriesMonth)
         ) {
             host.innerHTML = ''
@@ -790,15 +854,11 @@ if (typeof document !== 'undefined') {
         const Hm = r.lifetime
         const Q = r.queriesMonth
         const items = [
-            { label: 'Text-RAG prefill compute', value: Hm * Q * r.textCostQuery, color: '#fb923c' },
+            { label: 'Text-RAG path compute', value: Hm * Q * r.textVar, color: '#fb923c' },
             { label: 'Cartridge construction', value: r.buildCost, color: '#22d3ee' },
             { label: 'Cartridge storage', value: Hm * r.storageMonth, color: '#a78bfa' },
-            { label: 'Cartridge reads', value: Hm * Q * (r.loadCost ?? 0), color: '#f472b6' },
-            {
-                label: 'Remaining Cartridge-side compute',
-                value: Hm * Q * (r.textCostQuery - (r.realized ?? 0)),
-                color: '#34d399',
-            },
+            { label: 'Cartridge reads', value: Hm * Q * r.loadCost, color: '#f472b6' },
+            { label: 'Cartridge path compute', value: Hm * Q * r.cartComputeVar, color: '#34d399' },
         ]
         const max = Math.max(...items.map((i) => i.value), 1e-9)
         host.innerHTML =
@@ -1065,11 +1125,19 @@ if (typeof document !== 'undefined') {
         'in-other-build',
         'in-text-ms',
         'in-cart-ms',
+        'in-text-gpuhours',
+        'in-text-queries',
+        'in-cart-gpuhours',
+        'in-cart-queries',
+        'in-text-usd1k',
+        'in-cart-usd1k',
         'in-inf-gpus',
         'in-inf-gpu-preset',
         'in-inf-rate-custom',
+        'in-inf-rate-cart',
         'in-decode-ms',
         'in-realization',
+        'in-run-meta',
         'in-plan-text-tokens',
         'in-plan-cart-tokens',
         'in-plan-tps',
@@ -1092,7 +1160,15 @@ if (typeof document !== 'undefined') {
         'st-hitrate',
         'st-storage-preset',
     ]
-    const STATE_CHECKS = ['in-mode-a', 'in-mode-b', 'in-planning', 'in-selfstudy-included']
+    const STATE_CHECKS = [
+        'in-mode-a',
+        'in-mode-b',
+        'in-planning',
+        'in-selfstudy-included',
+        'in-inf-hours',
+        'in-inf-1k',
+        'in-inf-wall',
+    ]
 
     function encodeState() {
         const p = new URLSearchParams()
@@ -1119,6 +1195,14 @@ if (typeof document !== 'undefined') {
             if (el) el.checked = p.get(id) === '1'
         }
         if (!$('in-mode-a').checked && !$('in-mode-b').checked) $('in-mode-a').checked = true
+        if (!$('in-inf-hours').checked && !$('in-inf-1k').checked && !$('in-inf-wall').checked) {
+            // Links that predate the inference-mode selector carried wall times
+            if (p.has('in-text-ms') || p.has('in-cart-ms') || p.get('in-planning') === '1') {
+                $('in-inf-wall').checked = true
+            } else {
+                $('in-inf-hours').checked = true
+            }
+        }
         if (p.has('tab')) switchTab(p.get('tab'), false)
     }
 
@@ -1152,9 +1236,13 @@ if (typeof document !== 'undefined') {
     function refreshVisibility() {
         $('mode-a-fields').style.display = $('in-mode-a').checked ? '' : 'none'
         $('mode-b-fields').style.display = $('in-mode-b').checked ? '' : 'none'
-        $('planning-fields').style.display = $('in-planning').checked ? '' : 'none'
-        $('planning-banner').style.display = $('in-planning').checked ? 'block' : 'none'
-        $('measured-ms-fields').style.display = $('in-planning').checked ? 'none' : ''
+        const wall = $('in-inf-wall').checked
+        $('inf-hours-fields').style.display = $('in-inf-hours').checked ? '' : 'none'
+        $('inf-1k-fields').style.display = $('in-inf-1k').checked ? '' : 'none'
+        $('inf-wall-fields').style.display = wall ? '' : 'none'
+        $('planning-fields').style.display = wall && $('in-planning').checked ? '' : 'none'
+        $('planning-banner').style.display = wall && $('in-planning').checked ? 'block' : 'none'
+        $('measured-ms-fields').style.display = wall && $('in-planning').checked ? 'none' : ''
         $('in-compression-custom').style.display = $('in-compression').value === 'custom' ? '' : 'none'
         $('in-model-custom').style.display = $('in-model').value === 'custom-model' ? '' : 'none'
         const trainCustom = CARTRIDGE_PRICING.gpu.find((g) => g.id === $('in-train-gpu-preset').value)

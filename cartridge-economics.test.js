@@ -150,6 +150,24 @@ test('missing measured values propagate as null (benchmark required), never zero
     assert.strictEqual(E.netSavingPerLoad(0.01, 4.4, null), null)
 })
 
+test('measured production cost is billed GPU-hours over completed requests', () => {
+    // 10 billed GPU-hours at $2.69 over 20,000 completed requests
+    closeTo(E.gpuCostPerQuery(10, 2.69, 20000), 26.9 / 20000)
+    assert.strictEqual(E.gpuCostPerQuery(null, 2.69, 20000), null)
+    assert.strictEqual(E.gpuCostPerQuery(10, 2.69, 0), null)
+    assert.strictEqual(E.gpuCostPerQuery(10, null, 20000), null)
+    closeTo(E.costPer1kToPerQuery(1.5), 0.0015)
+    assert.strictEqual(E.costPer1kToPerQuery(null), null)
+})
+
+test('path cost delta is signed and null-propagating', () => {
+    closeTo(E.pathCostDelta(0.002, 0.0005), 0.0015)
+    // A more expensive Cartridge path is a negative delta, not zero
+    closeTo(E.pathCostDelta(0.0005, 0.002), -0.0015)
+    assert.strictEqual(E.pathCostDelta(null, 0.002), null)
+    assert.strictEqual(E.pathCostDelta(0.002, null), null)
+})
+
 test('quality gate distinguishes unknown, pass and fail', () => {
     assert.strictEqual(E.qualityGate(null, null, 1), 'unknown')
     assert.strictEqual(E.qualityGate(60, null, 1), 'unknown')

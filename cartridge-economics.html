@@ -126,6 +126,7 @@
                 margin-bottom: 3px;
             }
             .field input[type='number'],
+            .field input[type='text'],
             .field select {
                 width: 100%;
                 padding: 6px 10px;
@@ -561,47 +562,151 @@
                 </div>
 
                 <div class="card">
-                    <div class="sec-title">Per-query inference savings</div>
+                    <div class="sec-title">Per-query inference cost (both paths)</div>
                     <div class="sec-note">
-                        Use measured wall times. A 10x token reduction is not automatically a 100x reduction in GPU time
-                        &mdash; complete prefill includes projections, MLPs, kernel efficiency, batching and scheduling,
-                        not just O(n&sup2;) attention.
+                        Primary mode: billed GPU-hours divided by completed matched requests for each path &mdash; that
+                        is what production actually pays under continuous batching. Wall latency &times; TP size
+                        survives only as a microbenchmark approximation: many requests share each GPU-second, so
+                        per-request wall latency is not exclusive GPU time. A 10x token reduction is not automatically a
+                        100x reduction in GPU time. Record matched metadata with every run: model/checkpoint, engine +
+                        commit, token counts, concurrency and batching policy, completed requests, p50/p95 TTFT,
+                        throughput and quality score.
                     </div>
                     <div class="radio-row">
                         <label>
-                            <input type="checkbox" id="in-planning" />
-                            Planning-assumption mode (illustrative only)
+                            <input type="radio" name="inf-mode" id="in-inf-hours" checked />
+                            GPU-hours / completed requests (recommended)
+                        </label>
+                        <label>
+                            <input type="radio" name="inf-mode" id="in-inf-1k" />
+                            $ per 1K requests
+                        </label>
+                        <label>
+                            <input type="radio" name="inf-mode" id="in-inf-wall" />
+                            Wall-latency microbenchmark (approximation)
                         </label>
                     </div>
-                    <div id="measured-ms-fields" class="g3">
+                    <div id="inf-hours-fields" class="g2">
                         <div class="field">
-                            <label for="in-text-ms">Text-RAG prefill wall ms/query</label>
-                            <input type="number" id="in-text-ms" placeholder="benchmark required" min="0" step="1" />
+                            <label for="in-text-gpuhours">Text-RAG run: billed GPU-hours</label>
+                            <input
+                                type="number"
+                                id="in-text-gpuhours"
+                                placeholder="benchmark required"
+                                min="0"
+                                step="0.01"
+                            />
                         </div>
                         <div class="field">
-                            <label for="in-cart-ms">Cartridge-path prefill wall ms/query</label>
-                            <input type="number" id="in-cart-ms" placeholder="benchmark required" min="0" step="1" />
+                            <label for="in-text-queries">Text-RAG run: completed requests</label>
+                            <input
+                                type="number"
+                                id="in-text-queries"
+                                placeholder="benchmark required"
+                                min="1"
+                                step="1"
+                            />
+                        </div>
+                        <div class="field">
+                            <label for="in-cart-gpuhours">Cartridge run: billed GPU-hours</label>
+                            <input
+                                type="number"
+                                id="in-cart-gpuhours"
+                                placeholder="benchmark required"
+                                min="0"
+                                step="0.01"
+                            />
+                        </div>
+                        <div class="field">
+                            <label for="in-cart-queries">Cartridge run: completed requests</label>
+                            <input
+                                type="number"
+                                id="in-cart-queries"
+                                placeholder="benchmark required"
+                                min="1"
+                                step="1"
+                            />
                         </div>
                     </div>
-                    <div id="planning-fields" class="g3" style="display: none">
+                    <div id="inf-1k-fields" class="g2" style="display: none">
                         <div class="field">
-                            <label for="in-plan-text-tokens">Assumed text-RAG prefill tokens/query</label>
-                            <input type="number" id="in-plan-text-tokens" value="9860" min="0" step="10" />
+                            <label for="in-text-usd1k">Text-RAG variable cost ($/1K requests)</label>
+                            <input
+                                type="number"
+                                id="in-text-usd1k"
+                                placeholder="benchmark required"
+                                min="0"
+                                step="0.01"
+                            />
                         </div>
                         <div class="field">
-                            <label for="in-plan-cart-tokens">Assumed fresh prefill tokens/query (Cartridge path)</label>
-                            <input type="number" id="in-plan-cart-tokens" value="200" min="0" step="10" />
+                            <label for="in-cart-usd1k">Cartridge-path variable cost ($/1K requests)</label>
+                            <input
+                                type="number"
+                                id="in-cart-usd1k"
+                                placeholder="benchmark required"
+                                min="0"
+                                step="0.01"
+                            />
                         </div>
-                        <div class="field">
-                            <label for="in-plan-tps">Assumed prefill throughput (tokens/s)</label>
-                            <input type="number" id="in-plan-tps" value="50000" min="1" step="1000" />
+                    </div>
+                    <div id="inf-wall-fields" style="display: none">
+                        <div class="radio-row">
+                            <label>
+                                <input type="checkbox" id="in-planning" />
+                                Planning-assumption mode (illustrative only)
+                            </label>
+                        </div>
+                        <div id="measured-ms-fields" class="g3">
+                            <div class="field">
+                                <label for="in-text-ms">Text-RAG prefill wall ms/query</label>
+                                <input
+                                    type="number"
+                                    id="in-text-ms"
+                                    placeholder="benchmark required"
+                                    min="0"
+                                    step="1"
+                                />
+                            </div>
+                            <div class="field">
+                                <label for="in-cart-ms">Cartridge-path prefill wall ms/query</label>
+                                <input
+                                    type="number"
+                                    id="in-cart-ms"
+                                    placeholder="benchmark required"
+                                    min="0"
+                                    step="1"
+                                />
+                            </div>
+                        </div>
+                        <div id="planning-fields" class="g3" style="display: none">
+                            <div class="field">
+                                <label for="in-plan-text-tokens">Assumed text-RAG prefill tokens/query</label>
+                                <input type="number" id="in-plan-text-tokens" value="9860" min="0" step="10" />
+                            </div>
+                            <div class="field">
+                                <label for="in-plan-cart-tokens">
+                                    Assumed fresh prefill tokens/query (Cartridge path)
+                                </label>
+                                <input type="number" id="in-plan-cart-tokens" value="200" min="0" step="10" />
+                            </div>
+                            <div class="field">
+                                <label for="in-plan-tps">Assumed prefill throughput (tokens/s)</label>
+                                <input type="number" id="in-plan-tps" value="50000" min="1" step="1000" />
+                            </div>
+                        </div>
+                        <div class="g3" style="margin-top: 10px">
+                            <div class="field">
+                                <label for="in-inf-gpus">Inference GPUs/request (TP size)</label>
+                                <input type="number" id="in-inf-gpus" value="1" min="1" step="1" />
+                            </div>
+                            <div class="field">
+                                <label for="in-decode-ms">Decode GPU-ms saved/query (signed, optional)</label>
+                                <input type="number" id="in-decode-ms" value="0" step="1" />
+                            </div>
                         </div>
                     </div>
                     <div class="g3" style="margin-top: 10px">
-                        <div class="field">
-                            <label for="in-inf-gpus">Inference GPUs/request (TP size)</label>
-                            <input type="number" id="in-inf-gpus" value="1" min="1" step="1" />
-                        </div>
                         <div class="field">
                             <label for="in-inf-gpu-preset">Inference GPU provider/rate</label>
                             <select id="in-inf-gpu-preset"></select>
@@ -615,8 +720,14 @@
                             />
                         </div>
                         <div class="field">
-                            <label for="in-decode-ms">Decode GPU-ms saved/query (signed, optional)</label>
-                            <input type="number" id="in-decode-ms" value="0" step="1" />
+                            <label for="in-inf-rate-cart">Cartridge-run $/GPU-hour override (optional)</label>
+                            <input
+                                type="number"
+                                id="in-inf-rate-cart"
+                                placeholder="same as baseline"
+                                min="0"
+                                step="0.01"
+                            />
                         </div>
                         <div class="field">
                             <label for="in-realization">
@@ -625,6 +736,14 @@
                             </label>
                             <input type="range" id="in-realization" min="0" max="100" step="5" value="100" />
                         </div>
+                    </div>
+                    <div class="field" style="margin-top: 10px">
+                        <label for="in-run-meta">Run metadata (free text, saved in the scenario link)</label>
+                        <input
+                            type="text"
+                            id="in-run-meta"
+                            placeholder="model/checkpoint, engine+commit, tokens, concurrency, TTFT p50/p95, QPS"
+                        />
                     </div>
                     <div class="sec-note" style="margin-top: 8px">
                         Realization 100% = elastic billing, or saved capacity eventually removes GPUs, so saved GPU time
@@ -714,7 +833,7 @@
                             <div class="v" id="m-storage-month">—</div>
                         </div>
                         <div class="metric">
-                            <div class="k">GPU-time value saved</div>
+                            <div class="k">Compute cost delta/query (signed)</div>
                             <div class="v" id="m-gpu-value">—</div>
                         </div>
                         <div class="metric">
