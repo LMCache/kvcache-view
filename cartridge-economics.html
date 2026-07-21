@@ -760,6 +760,16 @@
                         only the additional Cartridge-object load is modeled here.
                     </div>
                     <div id="storage-unmodeled" class="warn-box" style="display: none"></div>
+                    <div class="radio-row">
+                        <label>
+                            <input type="radio" name="load-boundary" id="in-load-separate" checked />
+                            Load/staging modeled separately (below)
+                        </label>
+                        <label>
+                            <input type="radio" name="load-boundary" id="in-load-included" />
+                            Load/staging included in measured Cartridge-path cost and latency
+                        </label>
+                    </div>
                     <div class="g3">
                         <div class="field">
                             <label for="in-storage-preset">Storage provider</label>
@@ -773,17 +783,69 @@
                             <label for="in-storage-rate">Custom storage $/GB-month (override)</label>
                             <input type="number" id="in-storage-rate" placeholder="use preset" min="0" step="0.001" />
                         </div>
+                    </div>
+                    <div id="load-separate-fields">
+                        <div class="g3" style="margin-top: 10px">
+                            <div class="field">
+                                <label for="in-get-cost">Custom GET $/request (override)</label>
+                                <input
+                                    type="number"
+                                    id="in-get-cost"
+                                    placeholder="use preset"
+                                    min="0"
+                                    step="0.0000001"
+                                />
+                            </div>
+                            <div class="field">
+                                <label for="in-retrieval-cost">Custom retrieval $/GB (override)</label>
+                                <input
+                                    type="number"
+                                    id="in-retrieval-cost"
+                                    placeholder="use preset"
+                                    min="0"
+                                    step="0.001"
+                                />
+                            </div>
+                            <div class="field">
+                                <label for="in-egress-cost">Custom egress $/GB (override)</label>
+                                <input
+                                    type="number"
+                                    id="in-egress-cost"
+                                    placeholder="use preset"
+                                    min="0"
+                                    step="0.001"
+                                />
+                            </div>
+                            <div class="field">
+                                <label for="in-load-bw">Effective storage-to-GPU bandwidth (GB/s)</label>
+                                <input
+                                    type="number"
+                                    id="in-load-bw"
+                                    placeholder="benchmark required"
+                                    min="0"
+                                    step="0.1"
+                                />
+                            </div>
+                            <div class="field">
+                                <label for="in-load-fixed-ms">Fixed latency per object (ms)</label>
+                                <input type="number" id="in-load-fixed-ms" value="0" min="0" step="1" />
+                            </div>
+                            <div class="field" style="align-self: end">
+                                <label style="cursor: pointer">
+                                    <input type="checkbox" id="in-load-overlap" style="accent-color: #a78bfa" />
+                                    Loading overlapped with compute
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="g3" style="margin-top: 10px">
                         <div class="field">
-                            <label for="in-get-cost">Custom GET $/request (override)</label>
-                            <input type="number" id="in-get-cost" placeholder="use preset" min="0" step="0.0000001" />
+                            <label for="in-ttft-delta">Measured p95 TTFT delta, Cartridge − Text (ms)</label>
+                            <input type="number" id="in-ttft-delta" placeholder="benchmark required" step="1" />
                         </div>
                         <div class="field">
-                            <label for="in-retrieval-cost">Custom retrieval $/GB (override)</label>
-                            <input type="number" id="in-retrieval-cost" placeholder="use preset" min="0" step="0.001" />
-                        </div>
-                        <div class="field">
-                            <label for="in-egress-cost">Custom egress $/GB (override)</label>
-                            <input type="number" id="in-egress-cost" placeholder="use preset" min="0" step="0.001" />
+                            <label for="in-ttft-slo">Allowed p95 TTFT delta SLO (ms)</label>
+                            <input type="number" id="in-ttft-slo" placeholder="no SLO gate" min="0" step="1" />
                         </div>
                     </div>
                 </div>
@@ -843,6 +905,22 @@
                         <div class="metric">
                             <div class="k">Cartridge load cost</div>
                             <div class="v" id="m-load-cost">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Cold Cartridge bytes</div>
+                            <div class="v" id="m-cold-bytes">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Monthly cold traffic</div>
+                            <div class="v" id="m-cold-month">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Estimated cold-load latency</div>
+                            <div class="v" id="m-cold-ms">—</div>
+                        </div>
+                        <div class="metric">
+                            <div class="k">Min bandwidth to keep wall-time benefit</div>
+                            <div class="v" id="m-min-bw">—</div>
                         </div>
                         <div class="metric">
                             <div class="k">Net saving/query</div>

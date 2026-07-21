@@ -168,6 +168,26 @@ test('path cost delta is signed and null-propagating', () => {
     assert.strictEqual(E.pathCostDelta(0.002, null), null)
 })
 
+test('cold-load bytes, latency and minimum bandwidth', () => {
+    // 90% hit rate on 4.4 unique 83.19-MiB Cartridges: ~36.6 MiB cold/query
+    const bytesDoc = E.cartridgeBytesPerDocument(11800, 20, 141, 1.0)
+    const cold = E.coldBytesPerQuery(bytesDoc, 4.4, 0.9)
+    closeTo(cold / MIB, 36.6036, 1e-4)
+    assert.strictEqual(E.coldBytesPerQuery(null, 4.4, 0.9), null)
+    // 1 GB/s, 5 ms/object fixed, 0.44 cold objects: fixed + transfer time
+    const ms = E.coldLoadMsPerQuery(cold, 0.44, 1, 5, false)
+    closeTo(ms, 0.44 * 5 + (cold / 1e9) * 1000, 1e-6)
+    // Overlapped loading hides the latency entirely
+    assert.strictEqual(E.coldLoadMsPerQuery(cold, 0.44, 1, 5, true), 0)
+    // Missing bandwidth blocks the estimate rather than guessing
+    assert.strictEqual(E.coldLoadMsPerQuery(cold, 0.44, null, 5, false), null)
+    // Minimum bandwidth for loading not to erase a 100 ms wall-time benefit
+    const bw = E.minBandwidthGBps(cold, 0.44, 5, 100)
+    closeTo(bw, cold / 1e9 / ((100 - 2.2) / 1000), 1e-6)
+    // Fixed latency alone eating the whole benefit makes it unreachable
+    assert.strictEqual(E.minBandwidthGBps(cold, 4.4, 30, 100), Infinity)
+})
+
 test('quality gate distinguishes unknown, pass and fail', () => {
     assert.strictEqual(E.qualityGate(null, null, 1), 'unknown')
     assert.strictEqual(E.qualityGate(60, null, 1), 'unknown')

@@ -216,6 +216,35 @@ function loadCostQuery(
     return cold * getUsdPerRequest + bytesToDecimalGB(coldBytes) * (retrievalUsdPerGB + egressUsdPerGB)
 }
 
+function coldBytesPerQuery(cartBytesDoc, uniqueCartridgesQuery, cacheHitRate) {
+    const cold = coldCartridgesPerQuery(uniqueCartridgesQuery, cacheHitRate)
+    if (cold === null || !isNum(cartBytesDoc)) return null
+    return cartBytesDoc * cold
+}
+
+// Estimated wall milliseconds spent staging cold Cartridge objects for one
+// query. Overlapped loading hides the latency behind other work; otherwise
+// it is fixed per-object latency plus bytes over the effective
+// storage-to-GPU bandwidth.
+function coldLoadMsPerQuery(coldBytes, coldObjects, bandwidthGBps, fixedMsPerObject, overlapped) {
+    if (overlapped) return 0
+    if (!isNum(coldBytes) || !isNum(coldObjects) || !isNum(fixedMsPerObject)) return null
+    if (!isNum(bandwidthGBps) || bandwidthGBps <= 0) return null
+    return coldObjects * fixedMsPerObject + (coldBytes / (bandwidthGBps * 1e9)) * 1000
+}
+
+// Minimum effective storage-to-GPU bandwidth (GB/s) at which unoverlapped
+// loading does not erase the measured wall-time benefit of the Cartridge
+// path. Infinity means the fixed per-object latency alone already eats the
+// entire benefit.
+function minBandwidthGBps(coldBytes, coldObjects, fixedMsPerObject, wallMsSavedQuery) {
+    if (!isNum(coldBytes) || !isNum(coldObjects) || !isNum(fixedMsPerObject) || !isNum(wallMsSavedQuery)) return null
+    const budgetMs = wallMsSavedQuery - coldObjects * fixedMsPerObject
+    if (budgetMs <= 0) return Infinity
+    if (coldBytes <= 0) return 0
+    return coldBytes / 1e9 / (budgetMs / 1000)
+}
+
 // ── Break-even ──────────────────────────────────────────────────────────────
 
 function netSavingQuery(realizedSaving, loadCost) {
@@ -332,6 +361,9 @@ const CartEcon = {
     gpuTimeValueSavedQuery,
     realizedComputeSavingQuery,
     coldCartridgesPerQuery,
+    coldBytesPerQuery,
+    coldLoadMsPerQuery,
+    minBandwidthGBps,
     loadCostQuery,
     netSavingQuery,
     breakEvenQueriesMonth,
@@ -544,14 +576,37 @@ if (typeof document !== 'undefined') {
 
         const gpuValue = pathCostDelta(textVar, cartComputeVar)
         const realized = realizedComputeSavingQuery(gpuValue, realization)
-        const loadCost = loadCostQuery(
-            bytesDoc,
-            unique,
-            hitRate,
-            store.getUsdPerRequest,
-            store.retrievalUsdPerGB,
-            store.egressUsdPerGB,
-        )
+        // Cartridge loading boundary: either the measured Cartridge-path cost
+        // and latency already include load/staging (loadCost is an explicit
+        // zero, never double-counted), or loading is modeled separately from
+        // hit rate, bandwidth and object-store prices.
+        const loadIncluded = $('in-load-included').checked
+        const loadOverlap = $('in-load-overlap').checked
+        const loadCost = loadIncluded
+            ? 0
+            : loadCostQuery(
+                  bytesDoc,
+                  unique,
+                  hitRate,
+                  store.getUsdPerRequest,
+                  store.retrievalUsdPerGB,
+                  store.egressUsdPerGB,
+              )
+        const coldObjects = coldCartridgesPerQuery(unique, hitRate)
+        const coldBytes = coldBytesPerQuery(bytesDoc, unique, hitRate)
+        const coldMonthGB = isNum(coldBytes) && isNum(queriesMonth) ? bytesToDecimalGB(coldBytes * queriesMonth) : null
+        const loadFixedMs = num('in-load-fixed-ms')
+        const loadBw = num('in-load-bw')
+        const coldLoadMs = loadIncluded
+            ? null
+            : coldLoadMsPerQuery(coldBytes, coldObjects, loadBw, loadFixedMs, loadOverlap)
+        // Wall-time benefit is only known in the wall-latency microbenchmark
+        const wallMsSaved = isNum(textMs) && isNum(cartMs) ? textMs - cartMs : null
+        const minBw =
+            loadIncluded || loadOverlap ? null : minBandwidthGBps(coldBytes, coldObjects, loadFixedMs, wallMsSaved)
+        const ttftDelta = num('in-ttft-delta')
+        const ttftSlo = num('in-ttft-slo')
+        const ttftFail = isNum(ttftDelta) && isNum(ttftSlo) && ttftDelta > ttftSlo
         const net = netSavingQuery(realized, loadCost)
 
         const beQueries = breakEvenQueriesMonth(buildCost, lifetime, storageMonth, net)
@@ -599,7 +654,17 @@ if (typeof document !== 'undefined') {
             realization,
             realized,
             hitRate,
+            loadIncluded,
+            loadOverlap,
             loadCost,
+            coldObjects,
+            coldBytes,
+            coldMonthGB,
+            coldLoadMs,
+            minBw,
+            ttftDelta,
+            ttftSlo,
+            ttftFail,
             net,
             beQueries,
             monthly,
@@ -644,6 +709,10 @@ if (typeof document !== 'undefined') {
                 `Economically positive; quality unverified — break-even at ${formatCount(r.beQueries)} queries/month, ` +
                 'but no quality scores entered. Verify accuracy parity before trusting this.'
         }
+        if (!benchmarkMissing && r.ttftFail) {
+            if (cls === 'status-good') cls = 'status-warn'
+            text += ` [p95 TTFT delta ${r.ttftDelta} ms exceeds the ${r.ttftSlo} ms SLO — the latency gate fails even where dollars break even.]`
+        }
         if (r.planning && !benchmarkMissing) {
             text += ' [Illustrative planning assumption — not measured, not paper results.]'
         } else if (r.infMode === 'wall' && !benchmarkMissing) {
@@ -680,7 +749,30 @@ if (typeof document !== 'undefined') {
         setMetric('m-storage-month', r.storageMonth === null ? BENCH : formatUSD(r.storageMonth) + '/mo')
         setMetric('m-gpu-value', r.gpuValue === null ? BENCH : formatUSD(r.gpuValue) + '/query')
         setMetric('m-realized', r.realized === null ? BENCH : formatUSD(r.realized) + '/query')
-        setMetric('m-load-cost', r.loadCost === null ? BENCH : formatUSD(r.loadCost) + '/query')
+        setMetric(
+            'm-load-cost',
+            r.loadIncluded
+                ? '<span class="sub">included in measured path cost</span>'
+                : r.loadCost === null
+                  ? BENCH
+                  : formatUSD(r.loadCost) + '/query',
+        )
+        setMetric('m-cold-bytes', r.coldBytes === null ? '—' : formatBytesBinary(r.coldBytes) + '/query')
+        setMetric('m-cold-month', r.coldMonthGB === null ? '—' : r.coldMonthGB.toFixed(1) + ' GB/mo')
+        setMetric(
+            'm-cold-ms',
+            r.loadIncluded
+                ? '<span class="sub">included in measured path latency</span>'
+                : r.loadOverlap
+                  ? '<span class="sub">overlapped with compute</span>'
+                  : r.coldLoadMs === null
+                    ? '—'
+                    : r.coldLoadMs.toFixed(1) + ' ms/query',
+        )
+        setMetric(
+            'm-min-bw',
+            r.minBw === null ? '—' : !isFinite(r.minBw) ? 'unreachable' : r.minBw.toFixed(2) + ' GB/s',
+        )
         setMetric('m-net', r.net === null ? BENCH : formatUSD(r.net) + '/query')
         setMetric(
             'm-breakeven',
@@ -1143,6 +1235,10 @@ if (typeof document !== 'undefined') {
         'in-plan-tps',
         'in-storage-preset',
         'in-hitrate',
+        'in-load-bw',
+        'in-load-fixed-ms',
+        'in-ttft-delta',
+        'in-ttft-slo',
         'in-storage-rate',
         'in-get-cost',
         'in-retrieval-cost',
@@ -1168,6 +1264,9 @@ if (typeof document !== 'undefined') {
         'in-inf-hours',
         'in-inf-1k',
         'in-inf-wall',
+        'in-load-separate',
+        'in-load-included',
+        'in-load-overlap',
     ]
 
     function encodeState() {
@@ -1195,6 +1294,7 @@ if (typeof document !== 'undefined') {
             if (el) el.checked = p.get(id) === '1'
         }
         if (!$('in-mode-a').checked && !$('in-mode-b').checked) $('in-mode-a').checked = true
+        if (!$('in-load-separate').checked && !$('in-load-included').checked) $('in-load-separate').checked = true
         if (!$('in-inf-hours').checked && !$('in-inf-1k').checked && !$('in-inf-wall').checked) {
             // Links that predate the inference-mode selector carried wall times
             if (p.has('in-text-ms') || p.has('in-cart-ms') || p.get('in-planning') === '1') {
@@ -1243,6 +1343,7 @@ if (typeof document !== 'undefined') {
         $('planning-fields').style.display = wall && $('in-planning').checked ? '' : 'none'
         $('planning-banner').style.display = wall && $('in-planning').checked ? 'block' : 'none'
         $('measured-ms-fields').style.display = wall && $('in-planning').checked ? 'none' : ''
+        $('load-separate-fields').style.display = $('in-load-included').checked ? 'none' : ''
         $('in-compression-custom').style.display = $('in-compression').value === 'custom' ? '' : 'none'
         $('in-model-custom').style.display = $('in-model').value === 'custom-model' ? '' : 'none'
         const trainCustom = CARTRIDGE_PRICING.gpu.find((g) => g.id === $('in-train-gpu-preset').value)
