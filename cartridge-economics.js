@@ -610,11 +610,16 @@ if (typeof document !== 'undefined') {
             cartComputeVar = costPer1kToPerQuery(num('in-cart-usd1k'))
         } else {
             if (planning) {
-                const tps = num('in-plan-tps')
+                // Separate effective throughput per path: the Cartridge path's
+                // fresh tokens still attend over the loaded Cartridge prefix,
+                // so one shared tokens/s across radically different sequence
+                // shapes is not valid.
+                const tpsText = num('in-plan-tps-text')
+                const tpsCart = num('in-plan-tps-cart')
                 const textTok = num('in-plan-text-tokens')
                 const cartTok = num('in-plan-cart-tokens')
-                textMs = isNum(tps) && isNum(textTok) && tps > 0 ? (textTok / tps) * 1000 : null
-                cartMs = isNum(tps) && isNum(cartTok) && tps > 0 ? (cartTok / tps) * 1000 : null
+                textMs = isNum(tpsText) && isNum(textTok) && tpsText > 0 ? (textTok / tpsText) * 1000 : null
+                cartMs = isNum(tpsCart) && isNum(cartTok) && tpsCart > 0 ? (cartTok / tpsCart) * 1000 : null
             }
             textVar =
                 isNum(textMs) && isNum(infGpus) && isNum(infRate)
@@ -789,6 +794,13 @@ if (typeof document !== 'undefined') {
         } else if (r.net <= 0 || !isFinite(r.beQueries)) {
             cls = 'status-fail'
             text = 'No economic break-even — per-query net saving is not positive at these inputs.'
+        } else if (r.planning) {
+            // Planning mode never emits a viable verdict
+            cls = 'status-warn'
+            text =
+                'Illustrative only — incomplete estimate; measured production costs required. At the assumed ' +
+                `per-path throughputs the sketch would break even at ${formatCount(r.beQueries)} queries/month ` +
+                `vs ${BASELINE_LABELS[r.baseline]}, but assumed throughput is not a measurement.`
         } else if (r.quality === 'pass') {
             cls = 'status-good'
             text = `Economically and quality viable vs ${BASELINE_LABELS[r.baseline]} — break-even at ${formatCount(r.beQueries)} queries/month within the ${r.lifetime}-month lifetime.`
@@ -808,9 +820,9 @@ if (typeof document !== 'undefined') {
             if (cls === 'status-good') cls = 'status-warn'
             text += ` [p95 TTFT delta ${r.ttftDelta} ms exceeds the ${r.ttftSlo} ms SLO — the latency gate fails even where dollars break even.]`
         }
-        if (r.planning && !benchmarkMissing) {
+        if (r.planning && !benchmarkMissing && cls === 'status-fail') {
             text += ' [Illustrative planning assumption — not measured, not paper results.]'
-        } else if (r.infMode === 'wall' && !benchmarkMissing) {
+        } else if (!r.planning && r.infMode === 'wall' && !benchmarkMissing) {
             text +=
                 ' [Wall-latency microbenchmark approximation — under continuous batching wall latency × TP ' +
                 'is not exclusive GPU time; prefer measured GPU-hours per completed request.]'
@@ -1348,7 +1360,8 @@ if (typeof document !== 'undefined') {
         'in-run-meta',
         'in-plan-text-tokens',
         'in-plan-cart-tokens',
-        'in-plan-tps',
+        'in-plan-tps-text',
+        'in-plan-tps-cart',
         'in-storage-preset',
         'in-hitrate',
         'in-load-bw',
@@ -1410,6 +1423,11 @@ if (typeof document !== 'undefined') {
             if (el) el.checked = p.get(id) === '1'
         }
         if (!$('in-mode-a').checked && !$('in-mode-b').checked) $('in-mode-a').checked = true
+        // Old links carried a single shared planning throughput
+        if (p.has('in-plan-tps')) {
+            if ($('in-plan-tps-text').value === '') $('in-plan-tps-text').value = p.get('in-plan-tps')
+            if ($('in-plan-tps-cart').value === '') $('in-plan-tps-cart').value = p.get('in-plan-tps')
+        }
         if (!$('in-load-separate').checked && !$('in-load-included').checked) $('in-load-separate').checked = true
         if (!$('in-inf-hours').checked && !$('in-inf-1k').checked && !$('in-inf-wall').checked) {
             // Links that predate the inference-mode selector carried wall times

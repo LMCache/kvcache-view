@@ -717,9 +717,24 @@
                                 <input type="number" id="in-plan-cart-tokens" value="200" min="0" step="10" />
                             </div>
                             <div class="field">
-                                <label for="in-plan-tps">Assumed prefill throughput (tokens/s)</label>
-                                <input type="number" id="in-plan-tps" value="50000" min="1" step="1000" />
+                                <label for="in-plan-tps-text">Assumed Text-RAG throughput (tokens/s)</label>
+                                <input type="number" id="in-plan-tps-text" value="50000" min="1" step="1000" />
                             </div>
+                            <div class="field">
+                                <label for="in-plan-tps-cart">Assumed Cartridge-path throughput (tokens/s)</label>
+                                <input
+                                    type="number"
+                                    id="in-plan-tps-cart"
+                                    placeholder="benchmark required"
+                                    min="1"
+                                    step="1000"
+                                />
+                            </div>
+                        </div>
+                        <div class="sec-note" id="planning-note" style="margin-top: 6px">
+                            Source-token compression is not GPU-time compression: the fresh Cartridge-path tokens still
+                            attend over the loaded Cartridge prefix, so each path needs its own effective throughput.
+                            Planning mode never emits a &ldquo;viable&rdquo; verdict.
                         </div>
                         <div class="g3" style="margin-top: 10px">
                             <div class="field">
