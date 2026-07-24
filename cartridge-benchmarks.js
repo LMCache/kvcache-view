@@ -80,6 +80,46 @@ const CARTRIDGE_BENCHMARKS = {
                 'a corrected 0.6B run validates instrumentation and cost accounting only — it does not estimate ' +
                 '8B economics.',
         },
+        {
+            id: 'qwen3-8b-longhealth-cas-build',
+            validity: 'exploratory',
+            provenance: 'knlp CAS reproduction harness, 8x H100 80GB',
+            date: '2026-07-24',
+            model: 'Qwen3-8B',
+            dataset: 'LongHealth patient records',
+            corpusTokens: null,
+            docTokens: 7681,
+            cartridgeTokens: 512,
+            compression: 15.0,
+            serializedFormat: 'bf16',
+            serializedBytesDoc: 75546893,
+            harness: 'knlp research/cartridges_cas (HazyResearch cartridges @ 8cb6823)',
+            engine: 'vLLM Qwen3-8B teacher (self-study synth) + FlexQwen3 train path',
+            hardware: '8x H100 80GB',
+            constructionGpuHours: null,
+            selfStudyCostUsd: null,
+            otherBuildCostUsd: null,
+            requestShape: null,
+            concurrency: null,
+            baselineRun: null,
+            cartridgeRun: null,
+            loadPath: null,
+            ttftMs: null,
+            throughputQps: null,
+            qualityMetric: 'LongHealth accuracy',
+            qualityBaseline: null,
+            qualityCartridge: null,
+            notes:
+                'In-progress CAS (arXiv:2606.04557) reproduction on Qwen3-8B. Measured so far: ' +
+                'cartridgeTokens (511 trained + 1 frozen sink token), serializedFormat/serializedBytesDoc ' +
+                'from a trained isolated Cartridge on disk (bf16), and docTokens/compression from a LongHealth ' +
+                'patient record. Still null (benchmark required, never estimated): constructionGpuHours, ' +
+                'selfStudyCostUsd and otherBuildCostUsd await the running six-patient x 20000-convo self-study ' +
+                'synth and Cartridge training; qualityBaseline/qualityCartridge await the combine-eval; the ' +
+                'whole serving side (baselineRun/cartridgeRun, ttftMs, throughputQps, loadPath) awaits a ' +
+                'serving A/B microbenchmark not yet run. Promote to valid once the build cost and Cartridge ' +
+                'quality are measured. This is the 8B build the invalid 0.6B record explicitly could not estimate.',
+        },
     ],
 }
 
