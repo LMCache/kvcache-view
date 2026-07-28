@@ -159,9 +159,23 @@
                 color: var(--text-muted);
                 font-size: 12px;
             }
+            #tip {
+                position: fixed;
+                display: none;
+                background: #0d163a;
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 6px 10px;
+                font-size: 12.5px;
+                color: var(--text-primary);
+                pointer-events: none;
+                z-index: 10;
+                max-width: 340px;
+            }
         </style>
     </head>
     <body>
+        <div id="tip"></div>
         <div class="wrap">
             <h1>KV Cache Offload Storage IO</h1>
             <div class="sub">
@@ -615,7 +629,7 @@
                             '</button>',
                     )
                     .join('')
-                document.getElementById('legend').innerHTML = doc.models
+                const lg = doc.models
                     .map(
                         (m, i) =>
                             '<span class="' +
@@ -629,6 +643,8 @@
                             '</span>',
                     )
                     .join('')
+                document.getElementById('legend').innerHTML = lg
+                document.getElementById('legend2').innerHTML = lg
             }
             function setSeq(v) {
                 seq = v
@@ -652,6 +668,16 @@
                 renderTable()
                 renderChart()
                 renderTrend()
+            }
+            function showTip(ev, el) {
+                const t = document.getElementById('tip')
+                t.textContent = el.getAttribute('data-label')
+                t.style.display = 'block'
+                t.style.left = ev.clientX + 14 + 'px'
+                t.style.top = ev.clientY + 10 + 'px'
+            }
+            function hideTip() {
+                document.getElementById('tip').style.display = 'none'
             }
             function renderTable() {
                 const d = doc
@@ -744,8 +770,14 @@
                 const B = 44
                 const T = 14
                 const R = 20
-                const ts = pts.map((p) => p.t)
-                const ys = pts.map((p) => p.y)
+                const allPts = []
+                d.models.forEach((m) => {
+                    const s = m.measured.store || {}
+                    const l = m.measured.load || {}
+                    if (s.p50_ms) allPts.push({ t: s.p50_ms * blocks, y: yfn(m) })
+                    if (l.p50_ms) allPts.push({ t: l.p50_ms * blocks, y: yfn(m) })
+                })
+                const ts = allPts.map((p) => p.t)
                 const tmin = Math.min(...ts) / 1.4
                 const tmax = Math.max(...ts) * 1.4
                 const ymin = Math.min(...ys) / 1.6
@@ -807,23 +839,21 @@
                 for (const p of pts) {
                     const c = color(p.i)
                     const fill = p.phase === 'read' ? c : 'none'
+                    const lbl = p.m.model + ' — ' + p.phase + ' phase: ' + fmtTime(p.t) + ', ' + fmtSize(p.y)
                     g +=
                         '<circle cx="' +
                         X(p.t) +
                         '" cy="' +
                         Y(p.y) +
-                        '" r="6" fill="' +
+                        '" r="7" fill="' +
                         fill +
                         '" stroke="' +
                         c +
-                        '" stroke-width="2"><title>' +
-                        p.m.model +
-                        ' — ' +
-                        p.phase +
-                        ' phase: ' +
-                        fmtTime(p.t) +
-                        ', ' +
-                        fmtSize(p.y) +
+                        '" stroke-width="2.5" data-label="' +
+                        lbl +
+                        '" onmousemove="showTip(event,this)" ' +
+                        'onmouseout="hideTip()"><title>' +
+                        lbl +
                         '</title></circle>'
                 }
                 g +=
@@ -861,11 +891,12 @@
                 const T = 14
                 const R = 20
                 const PAD = 5259600000
-                const tmin = Math.min(...pts.map((p) => p.t)) - PAD
-                const tmax = Math.max(...pts.map((p) => p.t)) + PAD
-                const ys = pts.map((p) => p.y)
-                const ymin = Math.min(...ys) / 1.6
-                const ymax = Math.max(...ys) * 1.6
+                const allT = d.models.filter((m) => m.released).map((m) => new Date(m.released).getTime())
+                const allY = d.models.map((m) => yfn(m))
+                const tmin = Math.min(...allT) - PAD
+                const tmax = Math.max(...allT) + PAD
+                const ymin = Math.min(...allY) / 1.6
+                const ymax = Math.max(...allY) * 1.6
                 const X = (t) => L + ((t - tmin) / (tmax - tmin)) * (W - L - R)
                 const Y = (v) =>
                     H - B - ((Math.log10(v) - Math.log10(ymin)) / (Math.log10(ymax) - Math.log10(ymin))) * (H - T - B)
@@ -922,19 +953,19 @@
                         '</text>'
                 }
                 for (const p of pts) {
+                    const lbl = p.m.model + ' (' + p.m.released + '): ' + fmtSize(p.y)
                     g +=
                         '<circle cx="' +
                         X(p.t) +
                         '" cy="' +
                         Y(p.y) +
-                        '" r="7" fill="' +
+                        '" r="8" fill="' +
                         color(p.i) +
-                        '" fill-opacity="0.85"><title>' +
-                        p.m.model +
-                        ' (' +
-                        p.m.released +
-                        '): ' +
-                        fmtSize(p.y) +
+                        '" fill-opacity="0.85" data-label="' +
+                        lbl +
+                        '" onmousemove="showTip(event,this)" ' +
+                        'onmouseout="hideTip()"><title>' +
+                        lbl +
                         '</title></circle>'
                 }
                 g +=
