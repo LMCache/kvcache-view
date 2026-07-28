@@ -778,6 +778,7 @@
                     if (l.p50_ms) allPts.push({ t: l.p50_ms * blocks, y: yfn(m) })
                 })
                 const ts = allPts.map((p) => p.t)
+                const ys = allPts.map((p) => p.y)
                 const tmin = Math.min(...ts) / 1.4
                 const tmax = Math.max(...ts) * 1.4
                 const ymin = Math.min(...ys) / 1.6
