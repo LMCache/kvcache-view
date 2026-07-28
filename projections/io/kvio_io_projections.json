@@ -34,7 +34,8 @@
           "MBps": 894.8
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 131072
     },
     {
       "model": "deepseek-ai/DeepSeek-V3",
@@ -58,7 +59,58 @@
           "MBps": 982.7
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 163840
+    },
+    {
+      "model": "moonshotai/Kimi-K2-Instruct",
+      "family": "mla",
+      "kv_block_bytes_256tok": 17989632,
+      "kv_bytes_per_token": 70272.0,
+      "dtype": "bfloat16",
+      "store_cmds_per_block": 139,
+      "store_bytes_per_block": 17993728,
+      "load_cmds_per_block": 138,
+      "load_bytes_per_block": 17989632,
+      "measured": {
+        "store": {
+          "p50_ms": 24.069,
+          "p99_ms": 25.384,
+          "MBps": 747.9
+        },
+        "load": {
+          "p50_ms": 16.411,
+          "p99_ms": 19.508,
+          "MBps": 1089.5
+        }
+      },
+      "cmd_bytes": 131072,
+      "max_context_tokens": 131072
+    },
+    {
+      "model": "moonshotai/Kimi-K3",
+      "family": "mla",
+      "kv_block_bytes_256tok": 27426816,
+      "kv_bytes_per_token": 107136.0,
+      "dtype": "bfloat16",
+      "store_cmds_per_block": 211,
+      "store_bytes_per_block": 27430912,
+      "load_cmds_per_block": 210,
+      "load_bytes_per_block": 27426816,
+      "measured": {
+        "store": {
+          "p50_ms": 58.186,
+          "p99_ms": 89.678,
+          "MBps": 456.2
+        },
+        "load": {
+          "p50_ms": 23.152,
+          "p99_ms": 30.859,
+          "MBps": 1127.9
+        }
+      },
+      "cmd_bytes": 131072,
+      "max_context_tokens": null
     },
     {
       "model": "meta-llama/Llama-3.2-3B-Instruct",
@@ -82,7 +134,8 @@
           "MBps": 1137.8
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 131072
     },
     {
       "model": "meta-llama/Llama-3.1-8B-Instruct",
@@ -106,7 +159,8 @@
           "MBps": 1010.0
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 131072
     },
     {
       "model": "mistralai/Mistral-7B-Instruct-v0.2",
@@ -130,7 +184,8 @@
           "MBps": 933.7
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 32768
     },
     {
       "model": "tencent/Hunyuan-A13B-Instruct",
@@ -154,7 +209,8 @@
           "MBps": 976.1
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 32768
     },
     {
       "model": "Qwen/Qwen3-8B",
@@ -178,7 +234,8 @@
           "MBps": 916.3
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 40960
     },
     {
       "model": "Qwen/Qwen3-235B-A22B-Thinking-2507",
@@ -202,7 +259,33 @@
           "MBps": 900.8
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 262144
+    },
+    {
+      "model": "MiniMaxAI/MiniMax-M2",
+      "family": "gqa_head_dim",
+      "kv_block_bytes_256tok": 65011712,
+      "kv_bytes_per_token": 253952.0,
+      "dtype": "bfloat16",
+      "store_cmds_per_block": 497,
+      "store_bytes_per_block": 65015808,
+      "load_cmds_per_block": 496,
+      "load_bytes_per_block": 65011712,
+      "measured": {
+        "store": {
+          "p50_ms": 135.603,
+          "p99_ms": 180.868,
+          "MBps": 486.6
+        },
+        "load": {
+          "p50_ms": 62.502,
+          "p99_ms": 68.886,
+          "MBps": 1036.4
+        }
+      },
+      "cmd_bytes": 131072,
+      "max_context_tokens": 196608
     },
     {
       "model": "Qwen/Qwen3-32B",
@@ -226,7 +309,8 @@
           "MBps": 985.2
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 40960
     },
     {
       "model": "meta-llama/Llama-3.1-70B-Instruct",
@@ -250,7 +334,8 @@
           "MBps": 1033.1
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 131072
     },
     {
       "model": "zai-org/GLM-4.6",
@@ -274,7 +359,8 @@
           "MBps": 1030.8
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 202752
     },
     {
       "model": "meta-llama/Llama-3.1-405B",
@@ -298,7 +384,8 @@
           "MBps": 1041.8
         }
       },
-      "cmd_bytes": 131072
+      "cmd_bytes": 131072,
+      "max_context_tokens": 131072
     }
   ]
 }

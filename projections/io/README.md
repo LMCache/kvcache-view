@@ -46,6 +46,18 @@ on this host (`max_sectors_kb`). Shared machine: treat throughput as
 representative, not pristine. `--model` accepts any Hugging Face model
 id; the catalog models need no network.
 
+## Chunk vs sequence length
+
+256 tokens is LMCache's offload **chunk** — the atomic IO unit a KV
+cache is split into for storage — not a sequence length. A query's
+cost is an exact linear multiple: a 128K-token context is 512 of the
+measured blocks, 1M tokens is 4,096 of them. `io-projections.html`
+exposes this as a sequence-length selector (4K to 1M) and dims models
+whose declared `max_position_embeddings` is below the selected length
+-- no open-weights model in this set reaches 1M today (the range is
+32K to 262K; Kimi-K3's config declares none). meta-llama/Llama-4
+models are absent because their configs are gated on Hugging Face.
+
 ## Reading the data
 
 Per-token storage footprint spans 16x across today's models — from

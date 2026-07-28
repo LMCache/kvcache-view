@@ -6,6 +6,10 @@ import sys
 from pathlib import Path
 
 d = Path(sys.argv[1])
+maxctx = {}
+mc = d / "max_context.json"
+if mc.exists():
+    maxctx = json.loads(mc.read_text())
 models = []
 for rec_path in sorted(d.glob("*.record.json")):
     tag = rec_path.name.replace(".record.json", "")
@@ -42,6 +46,8 @@ for rec_path in sorted(d.glob("*.record.json")):
                 "MBps": float(lm.group(3)),
             }
     m["cmd_bytes"] = dg.get("mdts_bytes")
+    mcv = maxctx.get(rec["model"])
+    m["max_context_tokens"] = mcv if isinstance(mcv, int) else None
     models.append(m)
 
 models.sort(key=lambda m: m["kv_block_bytes_256tok"])
