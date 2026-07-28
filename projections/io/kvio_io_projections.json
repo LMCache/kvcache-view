@@ -2,7 +2,10 @@
   "schema": 1,
   "what": "Per-model KV-cache offload storage-IO projections: the calculator's exact block geometry plus measured store/load on real NVMe",
   "method": {
-    "generator": "LMCache examples/kv_cache_offload_io/run_kv_offload_io.py (kv_geometry.py = the kv_cache_calculator math)",
+    "generator": "run_kv_offload_io.py from the kvio branch of mcgrof/LMCache (not yet upstream; kv_geometry.py is the kv_cache_calculator math)",
+    "generator_url": "https://github.com/mcgrof/LMCache/tree/kvio/examples/kv_cache_offload_io",
+    "kvio_project_url": "https://github.com/SamsungDS/ebpf-syscall/tree/ebpf-fixes",
+    "kvio_docs_url": "https://htmlpreview.github.io/?https://github.com/SamsungDS/ebpf-syscall/blob/ebpf-fixes/docs/kvio.html",
     "chunk_tokens": 256,
     "dtype": "bfloat16",
     "engine": "io_uring, O_DIRECT, file on xfs",
