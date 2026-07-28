@@ -10,6 +10,10 @@ maxctx = {}
 mc = d / "max_context.json"
 if mc.exists():
     maxctx = json.loads(mc.read_text())
+released = {}
+rd = d / "release_dates.json"
+if rd.exists():
+    released = json.loads(rd.read_text())
 models = []
 for rec_path in sorted(d.glob("*.record.json")):
     tag = rec_path.name.replace(".record.json", "")
@@ -60,6 +64,7 @@ for rec_path in sorted(d.glob("*.record.json")):
     m["store_max_io_bytes"] = min(q, blk)
     mcv = maxctx.get(rec["model"])
     m["max_context_tokens"] = mcv if isinstance(mcv, int) else None
+    m["released"] = released.get(rec["model"])  # HF repo createdAt (YYYY-MM-DD)
     models.append(m)
 
 models.sort(key=lambda m: m["kv_block_bytes_256tok"])

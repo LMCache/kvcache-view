@@ -39,7 +39,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "released": "2024-09-18"
     },
     {
       "model": "deepseek-ai/DeepSeek-V3",
@@ -68,7 +69,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 163840
+      "max_context_tokens": 163840,
+      "released": "2024-12-25"
     },
     {
       "model": "moonshotai/Kimi-K2-Instruct",
@@ -97,7 +99,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "released": "2025-07-11"
     },
     {
       "model": "moonshotai/Kimi-K3",
@@ -126,7 +129,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": null
+      "max_context_tokens": null,
+      "released": "2026-06-13"
     },
     {
       "model": "meta-llama/Llama-3.2-3B-Instruct",
@@ -155,7 +159,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "released": "2024-09-18"
     },
     {
       "model": "meta-llama/Llama-3.1-8B-Instruct",
@@ -184,7 +189,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "released": "2024-07-18"
     },
     {
       "model": "mistralai/Mistral-7B-Instruct-v0.2",
@@ -213,7 +219,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 32768
+      "max_context_tokens": 32768,
+      "released": "2023-12-11"
     },
     {
       "model": "tencent/Hunyuan-A13B-Instruct",
@@ -242,7 +249,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 32768
+      "max_context_tokens": 32768,
+      "released": "2025-06-25"
     },
     {
       "model": "Qwen/Qwen3-8B",
@@ -271,7 +279,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 40960
+      "max_context_tokens": 40960,
+      "released": "2025-04-27"
     },
     {
       "model": "Qwen/Qwen3-235B-A22B-Thinking-2507",
@@ -300,7 +309,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 262144
+      "max_context_tokens": 262144,
+      "released": "2025-07-25"
     },
     {
       "model": "MiniMaxAI/MiniMax-M2",
@@ -329,7 +339,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 196608
+      "max_context_tokens": 196608,
+      "released": "2025-10-22"
     },
     {
       "model": "Qwen/Qwen3-32B",
@@ -358,7 +369,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 40960
+      "max_context_tokens": 40960,
+      "released": "2025-04-27"
     },
     {
       "model": "meta-llama/Llama-3.1-70B-Instruct",
@@ -387,7 +399,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "released": "2024-07-16"
     },
     {
       "model": "zai-org/GLM-4.6",
@@ -416,7 +429,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 202752
+      "max_context_tokens": 202752,
+      "released": "2025-09-29"
     },
     {
       "model": "meta-llama/Llama-3.1-405B",
@@ -445,7 +459,8 @@
       "load_max_io_bytes": 131072,
       "store_min_io_bytes": 4096,
       "store_max_io_bytes": 131072,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "released": "2024-07-16"
     }
   ]
 }
