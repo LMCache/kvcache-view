@@ -183,6 +183,13 @@
                 <div class="legend" id="legend"></div>
                 <div id="chart"></div>
             </div>
+            <div class="card">
+                <div class="note" style="margin-bottom: 6px">
+                    IO size vs model release date — same y axis and legend toggles as above; eyeball where storage IO is
+                    heading as models scale.
+                </div>
+                <div id="trend"></div>
+            </div>
             <div class="card note" id="method"></div>
         </div>
         <script>
@@ -223,6 +230,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
+                        released: '2024-09-18',
                     },
                     {
                         model: 'deepseek-ai/DeepSeek-V3',
@@ -244,6 +252,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 163840,
+                        released: '2024-12-25',
                     },
                     {
                         model: 'moonshotai/Kimi-K2-Instruct',
@@ -265,6 +274,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
+                        released: '2025-07-11',
                     },
                     {
                         model: 'moonshotai/Kimi-K3',
@@ -286,6 +296,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: null,
+                        released: '2026-06-13',
                     },
                     {
                         model: 'meta-llama/Llama-3.2-3B-Instruct',
@@ -307,6 +318,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
+                        released: '2024-09-18',
                     },
                     {
                         model: 'meta-llama/Llama-3.1-8B-Instruct',
@@ -328,6 +340,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
+                        released: '2024-07-18',
                     },
                     {
                         model: 'mistralai/Mistral-7B-Instruct-v0.2',
@@ -349,6 +362,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 32768,
+                        released: '2023-12-11',
                     },
                     {
                         model: 'tencent/Hunyuan-A13B-Instruct',
@@ -370,6 +384,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 32768,
+                        released: '2025-06-25',
                     },
                     {
                         model: 'Qwen/Qwen3-8B',
@@ -391,6 +406,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 40960,
+                        released: '2025-04-27',
                     },
                     {
                         model: 'Qwen/Qwen3-235B-A22B-Thinking-2507',
@@ -412,6 +428,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 262144,
+                        released: '2025-07-25',
                     },
                     {
                         model: 'MiniMaxAI/MiniMax-M2',
@@ -433,6 +450,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 196608,
+                        released: '2025-10-22',
                     },
                     {
                         model: 'Qwen/Qwen3-32B',
@@ -454,6 +472,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 40960,
+                        released: '2025-04-27',
                     },
                     {
                         model: 'meta-llama/Llama-3.1-70B-Instruct',
@@ -475,6 +494,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
+                        released: '2024-07-16',
                     },
                     {
                         model: 'zai-org/GLM-4.6',
@@ -496,6 +516,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 202752,
+                        released: '2025-09-29',
                     },
                     {
                         model: 'meta-llama/Llama-3.1-405B',
@@ -517,6 +538,7 @@
                         store_min_io_bytes: 4096,
                         store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
+                        released: '2024-07-16',
                     },
                 ],
             }
@@ -629,6 +651,7 @@
                 renderSel()
                 renderTable()
                 renderChart()
+                renderTrend()
             }
             function renderTable() {
                 const d = doc
@@ -812,6 +835,117 @@
                     'hollow = write phase, filled = read phase; click legend ' +
                     'to toggle models</text></svg>'
                 document.getElementById('chart').innerHTML = g
+            }
+            function renderTrend() {
+                const d = doc
+                const yfn = YOPTS.find((y) => y[0] === yopt)[2]
+                const ylab = YOPTS.find((y) => y[0] === yopt)[1]
+                const pts = []
+                d.models.forEach((m, i) => {
+                    if (hidden[m.model] || !m.released) return
+                    pts.push({
+                        m: m,
+                        i: i,
+                        t: new Date(m.released).getTime(),
+                        y: yfn(m),
+                    })
+                })
+                if (!pts.length) {
+                    document.getElementById('trend').innerHTML = '<div class="note">nothing selected</div>'
+                    return
+                }
+                const W = 1040
+                const H = 340
+                const L = 70
+                const B = 40
+                const T = 14
+                const R = 20
+                const PAD = 5259600000
+                const tmin = Math.min(...pts.map((p) => p.t)) - PAD
+                const tmax = Math.max(...pts.map((p) => p.t)) + PAD
+                const ys = pts.map((p) => p.y)
+                const ymin = Math.min(...ys) / 1.6
+                const ymax = Math.max(...ys) * 1.6
+                const X = (t) => L + ((t - tmin) / (tmax - tmin)) * (W - L - R)
+                const Y = (v) =>
+                    H - B - ((Math.log10(v) - Math.log10(ymin)) / (Math.log10(ymax) - Math.log10(ymin))) * (H - T - B)
+                let g = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:900px">'
+                const y0 = new Date(tmin).getFullYear()
+                const y1 = new Date(tmax).getFullYear()
+                for (let yr = y0; yr <= y1 + 1; yr++) {
+                    for (let q = 0; q < 4; q++) {
+                        const t = new Date(yr, q * 3, 1).getTime()
+                        if (t < tmin || t > tmax) continue
+                        const major = q === 0
+                        g +=
+                            '<line x1="' +
+                            X(t) +
+                            '" y1="' +
+                            T +
+                            '" x2="' +
+                            X(t) +
+                            '" y2="' +
+                            (H - B) +
+                            '" stroke="rgba(95,163,230,' +
+                            (major ? '0.28' : '0.12') +
+                            ')"/>'
+                        if (major)
+                            g +=
+                                '<text x="' +
+                                X(t) +
+                                '" y="' +
+                                (H - B + 16) +
+                                '" fill="#a5b4e0" font-size="11" ' +
+                                'text-anchor="middle">' +
+                                yr +
+                                '</text>'
+                    }
+                }
+                for (let e = Math.ceil(Math.log10(ymin)); e <= Math.floor(Math.log10(ymax)); e++) {
+                    const v = Math.pow(10, e)
+                    g +=
+                        '<line x1="' +
+                        L +
+                        '" y1="' +
+                        Y(v) +
+                        '" x2="' +
+                        (W - R) +
+                        '" y2="' +
+                        Y(v) +
+                        '" stroke="rgba(95,163,230,0.15)"/>' +
+                        '<text x="' +
+                        (L - 6) +
+                        '" y="' +
+                        (Y(v) + 4) +
+                        '" fill="#a5b4e0" font-size="11" text-anchor="end">' +
+                        fmtSize(v) +
+                        '</text>'
+                }
+                for (const p of pts) {
+                    g +=
+                        '<circle cx="' +
+                        X(p.t) +
+                        '" cy="' +
+                        Y(p.y) +
+                        '" r="7" fill="' +
+                        color(p.i) +
+                        '" fill-opacity="0.85"><title>' +
+                        p.m.model +
+                        ' (' +
+                        p.m.released +
+                        '): ' +
+                        fmtSize(p.y) +
+                        '</title></circle>'
+                }
+                g +=
+                    '<text x="' +
+                    (W - R) +
+                    '" y="' +
+                    (T + 4) +
+                    '" fill="#a5b4e0" font-size="11" text-anchor="end">' +
+                    ylab +
+                    ' by release date (HF repo creation)</text></svg>'
+                document.getElementById('trend').innerHTML = g
             }
             function renderMethod() {
                 const d = doc
