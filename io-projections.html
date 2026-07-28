@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="description"
+            content="Per-model KV cache offload storage IO projections: block geometry and measured NVMe store/load cost"
+        />
+        <title>KV Cache Offload Storage IO Projections</title>
+        <style>
+            :root {
+                --primary-blue: #1428a0;
+                --light-blue: #5fa3e6;
+                --accent-purple: #691fff;
+                --accent-cyan: #00d4ff;
+                --dark-ink: #0b1026;
+                --surface: rgba(10, 16, 44, 0.92);
+                --border: rgba(95, 163, 230, 0.45);
+                --text-primary: #eaf2ff;
+                --text-secondary: #c7d4f8;
+                --text-muted: #a5b4e0;
+                --accent-warn: #ff6b00;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                font-family:
+                    'Segoe UI',
+                    -apple-system,
+                    sans-serif;
+                background: var(--dark-ink);
+                color: var(--text-primary);
+                line-height: 1.5;
+            }
+            .wrap {
+                max-width: 1080px;
+                margin: 0 auto;
+                padding: 24px 16px 60px;
+            }
+            h1 {
+                font-size: 26px;
+                margin: 8px 0 4px;
+            }
+            .sub {
+                color: var(--text-secondary);
+                margin-bottom: 18px;
+            }
+            .card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 16px;
+                margin: 14px 0;
+                overflow-x: auto;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 13.5px;
+                min-width: 900px;
+            }
+            th,
+            td {
+                padding: 7px 9px;
+                text-align: right;
+                border-bottom: 1px solid rgba(95, 163, 230, 0.18);
+                white-space: nowrap;
+            }
+            th {
+                color: var(--text-muted);
+                font-weight: 600;
+                font-size: 12px;
+            }
+            td.model,
+            th.model {
+                text-align: left;
+                font-weight: 600;
+            }
+            .family {
+                color: var(--text-muted);
+                font-size: 11px;
+                font-weight: 400;
+            }
+            .barcell {
+                min-width: 160px;
+            }
+            .bar {
+                height: 12px;
+                border-radius: 6px;
+                background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
+                display: inline-block;
+                vertical-align: middle;
+            }
+            .bar.load {
+                background: linear-gradient(90deg, var(--primary-blue), var(--light-blue));
+            }
+            .note {
+                color: var(--text-muted);
+                font-size: 12.5px;
+            }
+            a {
+                color: var(--accent-cyan);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <h1>KV Cache Offload Storage IO</h1>
+            <div class="sub">
+                The memory envelope says how big the KV cache is. This page says what moving it to storage costs: each
+                model's 256-token offload block, the NVMe command stream it becomes, and measured store/load cost on a
+                real device.
+            </div>
+            <div class="card">
+                <table id="tbl"></table>
+            </div>
+            <div class="card note" id="method"></div>
+        </div>
+        <script>
+            const DATA = {
+                schema: 1,
+                what: "Per-model KV-cache offload storage-IO projections: the calculator's exact block geometry plus measured store/load on real NVMe",
+                method: {
+                    generator:
+                        'LMCache examples/kv_cache_offload_io/run_kv_offload_io.py (kv_geometry.py = the kv_cache_calculator math)',
+                    chunk_tokens: 256,
+                    dtype: 'bfloat16',
+                    engine: 'io_uring, O_DIRECT, file on xfs',
+                    command_bytes: 131072,
+                    command_note:
+                        'the kernel splits file I/O at max_sectors_kb (128 KiB on this host); projected command counts use the same 128 KiB quantum',
+                    measured_workload:
+                        '8 blocks stored then loaded, 3 measured passes after 1 warmup pass, one object in flight (per-object cost, not peak device throughput)',
+                    device: 'Micron 7450 (MTFDKBG960TFR 960 GB), shared host -- treat measured numbers as representative, not pristine',
+                },
+                models: [
+                    {
+                        model: 'meta-llama/Llama-3.2-1B-Instruct',
+                        family: 'default',
+                        kv_block_bytes_256tok: 8388608,
+                        kv_bytes_per_token: 32768.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 65,
+                        store_bytes_per_block: 8392704,
+                        load_cmds_per_block: 64,
+                        load_bytes_per_block: 8388608,
+                        measured: {
+                            store: { p50_ms: 23.107, p99_ms: 28.283, MBps: 359.9 },
+                            load: { p50_ms: 9.364, p99_ms: 10.25, MBps: 894.8 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'deepseek-ai/DeepSeek-V3',
+                        family: 'mla',
+                        kv_block_bytes_256tok: 17989632,
+                        kv_bytes_per_token: 70272.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 139,
+                        store_bytes_per_block: 17993728,
+                        load_cmds_per_block: 138,
+                        load_bytes_per_block: 17989632,
+                        measured: {
+                            store: { p50_ms: 18.459, p99_ms: 53.141, MBps: 918.9 },
+                            load: { p50_ms: 18.181, p99_ms: 21.397, MBps: 982.7 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'meta-llama/Llama-3.2-3B-Instruct',
+                        family: 'default',
+                        kv_block_bytes_256tok: 29360128,
+                        kv_bytes_per_token: 114688.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 225,
+                        store_bytes_per_block: 29364224,
+                        load_cmds_per_block: 224,
+                        load_bytes_per_block: 29360128,
+                        measured: {
+                            store: { p50_ms: 53.852, p99_ms: 104.801, MBps: 527.9 },
+                            load: { p50_ms: 24.039, p99_ms: 35.335, MBps: 1137.8 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'meta-llama/Llama-3.1-8B-Instruct',
+                        family: 'default',
+                        kv_block_bytes_256tok: 33554432,
+                        kv_bytes_per_token: 131072.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 257,
+                        store_bytes_per_block: 33558528,
+                        load_cmds_per_block: 256,
+                        load_bytes_per_block: 33554432,
+                        measured: {
+                            store: { p50_ms: 82.368, p99_ms: 90.899, MBps: 405.2 },
+                            load: { p50_ms: 32.957, p99_ms: 38.798, MBps: 1010.0 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'mistralai/Mistral-7B-Instruct-v0.2',
+                        family: 'default',
+                        kv_block_bytes_256tok: 33554432,
+                        kv_bytes_per_token: 131072.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 257,
+                        store_bytes_per_block: 33558528,
+                        load_cmds_per_block: 256,
+                        load_bytes_per_block: 33554432,
+                        measured: {
+                            store: { p50_ms: 76.344, p99_ms: 107.09, MBps: 425.0 },
+                            load: { p50_ms: 35.248, p99_ms: 40.313, MBps: 933.7 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'tencent/Hunyuan-A13B-Instruct',
+                        family: 'gqa_head_dim',
+                        kv_block_bytes_256tok: 33554432,
+                        kv_bytes_per_token: 131072.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 257,
+                        store_bytes_per_block: 33558528,
+                        load_cmds_per_block: 256,
+                        load_bytes_per_block: 33554432,
+                        measured: {
+                            store: { p50_ms: 71.938, p99_ms: 100.469, MBps: 465.3 },
+                            load: { p50_ms: 34.291, p99_ms: 38.225, MBps: 976.1 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'Qwen/Qwen3-8B',
+                        family: 'gqa_head_dim',
+                        kv_block_bytes_256tok: 37748736,
+                        kv_bytes_per_token: 147456.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 289,
+                        store_bytes_per_block: 37752832,
+                        load_cmds_per_block: 288,
+                        load_bytes_per_block: 37748736,
+                        measured: {
+                            store: { p50_ms: 82.835, p99_ms: 112.796, MBps: 439.7 },
+                            load: { p50_ms: 39.82, p99_ms: 54.596, MBps: 916.3 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'Qwen/Qwen3-235B-A22B-Thinking-2507',
+                        family: 'gqa_head_dim',
+                        kv_block_bytes_256tok: 49283072,
+                        kv_bytes_per_token: 192512.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 377,
+                        store_bytes_per_block: 49287168,
+                        load_cmds_per_block: 376,
+                        load_bytes_per_block: 49283072,
+                        measured: {
+                            store: { p50_ms: 131.187, p99_ms: 165.761, MBps: 381.8 },
+                            load: { p50_ms: 53.035, p99_ms: 80.667, MBps: 900.8 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'Qwen/Qwen3-32B',
+                        family: 'gqa_head_dim',
+                        kv_block_bytes_256tok: 67108864,
+                        kv_bytes_per_token: 262144.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 513,
+                        store_bytes_per_block: 67112960,
+                        load_cmds_per_block: 512,
+                        load_bytes_per_block: 67108864,
+                        measured: {
+                            store: { p50_ms: 192.557, p99_ms: 205.046, MBps: 352.6 },
+                            load: { p50_ms: 67.813, p99_ms: 76.477, MBps: 985.2 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'meta-llama/Llama-3.1-70B-Instruct',
+                        family: 'default',
+                        kv_block_bytes_256tok: 83886080,
+                        kv_bytes_per_token: 327680.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 641,
+                        store_bytes_per_block: 83890176,
+                        load_cmds_per_block: 640,
+                        load_bytes_per_block: 83886080,
+                        measured: {
+                            store: { p50_ms: 218.541, p99_ms: 249.525, MBps: 370.4 },
+                            load: { p50_ms: 81.349, p99_ms: 89.491, MBps: 1033.1 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'zai-org/GLM-4.6',
+                        family: 'gqa_head_dim',
+                        kv_block_bytes_256tok: 96468992,
+                        kv_bytes_per_token: 376832.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 737,
+                        store_bytes_per_block: 96473088,
+                        load_cmds_per_block: 736,
+                        load_bytes_per_block: 96468992,
+                        measured: {
+                            store: { p50_ms: 249.344, p99_ms: 277.51, MBps: 397.2 },
+                            load: { p50_ms: 93.745, p99_ms: 100.383, MBps: 1030.8 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                    {
+                        model: 'meta-llama/Llama-3.1-405B',
+                        family: 'default',
+                        kv_block_bytes_256tok: 132120576,
+                        kv_bytes_per_token: 516096.0,
+                        dtype: 'bfloat16',
+                        store_cmds_per_block: 1009,
+                        store_bytes_per_block: 132124672,
+                        load_cmds_per_block: 1008,
+                        load_bytes_per_block: 132120576,
+                        measured: {
+                            store: { p50_ms: 346.103, p99_ms: 368.183, MBps: 391.2 },
+                            load: { p50_ms: 127.106, p99_ms: 133.421, MBps: 1041.8 },
+                        },
+                        cmd_bytes: 131072,
+                    },
+                ],
+            }
+            async function load() {
+                let d = DATA
+                if (!d) {
+                    const r = await fetch('projections/io/kvio_io_projections.json')
+                    d = await r.json()
+                }
+                render(d)
+            }
+            function fmtMiB(b) {
+                return (b / 1048576).toFixed(1) + ' MiB'
+            }
+            function fmtKB(b) {
+                return (b / 1024).toFixed(1) + ' KB'
+            }
+            function render(d) {
+                const maxTok = Math.max(...d.models.map((m) => m.kv_bytes_per_token))
+                const maxLoad = Math.max(...d.models.map((m) => (m.measured.load || {}).MBps || 0))
+                let h =
+                    '<tr><th class="model">model</th><th>KV / 256 tok</th>' +
+                    '<th>bytes / token</th><th class="barcell"></th>' +
+                    '<th>cmds / block</th><th>load MB/s</th>' +
+                    '<th class="barcell"></th><th>load p50</th>' +
+                    '<th>store MB/s</th></tr>'
+                for (const m of d.models) {
+                    const s = m.measured.store || {}
+                    const l = m.measured.load || {}
+                    const wTok = (100 * m.kv_bytes_per_token) / maxTok
+                    const wLoad = (100 * (l.MBps || 0)) / maxLoad
+                    h +=
+                        '<tr><td class="model">' +
+                        m.model +
+                        ' <span class="family">' +
+                        (m.family || '') +
+                        '</span></td>' +
+                        '<td>' +
+                        fmtMiB(m.kv_block_bytes_256tok) +
+                        '</td><td>' +
+                        fmtKB(m.kv_bytes_per_token) +
+                        '</td><td class="barcell"><span class="bar" style="width:' +
+                        wTok +
+                        '%"></span></td><td>' +
+                        (m.load_cmds_per_block || '-') +
+                        '</td><td>' +
+                        (l.MBps ? l.MBps.toFixed(0) : '-') +
+                        '</td><td class="barcell"><span class="bar load" style="width:' +
+                        wLoad +
+                        '%"></span></td><td>' +
+                        (l.p50_ms ? l.p50_ms.toFixed(1) + ' ms' : '-') +
+                        '</td><td>' +
+                        (s.MBps ? s.MBps.toFixed(0) : '-') +
+                        '</td></tr>'
+                }
+                document.getElementById('tbl').innerHTML = h
+                document.getElementById('method').innerHTML =
+                    '<b>Method.</b> ' +
+                    d.method.generator +
+                    ' — ' +
+                    d.method.measured_workload +
+                    '. Device: ' +
+                    d.method.device +
+                    '. Command quantum: 128 KiB (' +
+                    d.method.command_note +
+                    '). Numbers are per-block cost, not peak device ' +
+                    'throughput. Data: <a href="projections/io/' +
+                    'kvio_io_projections.json">kvio_io_projections.json</a>.'
+            }
+            load()
+        </script>
+    </body>
+</html>
