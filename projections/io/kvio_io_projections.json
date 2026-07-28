@@ -35,6 +35,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 131072
     },
     {
@@ -60,6 +64,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 32768,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 163840
     },
     {
@@ -85,6 +93,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 32768,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 131072
     },
     {
@@ -110,6 +122,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 32768,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": null
     },
     {
@@ -135,6 +151,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 131072
     },
     {
@@ -160,6 +180,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 131072
     },
     {
@@ -185,6 +209,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 32768
     },
     {
@@ -210,6 +238,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 32768
     },
     {
@@ -235,6 +267,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 40960
     },
     {
@@ -260,6 +296,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 262144
     },
     {
@@ -285,6 +325,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 196608
     },
     {
@@ -310,6 +354,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 40960
     },
     {
@@ -335,6 +383,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 131072
     },
     {
@@ -360,6 +412,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 202752
     },
     {
@@ -385,6 +441,10 @@
         }
       },
       "cmd_bytes": 131072,
+      "load_min_io_bytes": 131072,
+      "load_max_io_bytes": 131072,
+      "store_min_io_bytes": 4096,
+      "store_max_io_bytes": 131072,
       "max_context_tokens": 131072
     }
   ]

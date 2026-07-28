@@ -46,6 +46,18 @@ for rec_path in sorted(d.glob("*.record.json")):
                 "MBps": float(lm.group(3)),
             }
     m["cmd_bytes"] = dg.get("mdts_bytes")
+    # Per-command IO size envelope. Store issues a 4 KiB header command
+    # plus the payload split; load is the payload split alone, whose
+    # smallest command is the block's tail (aligned up to 4 KiB).
+    q = int(dg.get("mdts_bytes") or 131072)
+    ba = int(dg.get("block_align") or 4096)
+    blk = int(rec["chunk_block_bytes"])
+    tail = blk % q
+    tail_aligned = ((tail + ba - 1) // ba) * ba if tail else 0
+    m["load_min_io_bytes"] = tail_aligned or min(q, blk)
+    m["load_max_io_bytes"] = min(q, blk)
+    m["store_min_io_bytes"] = int(dg.get("header_bytes") or ba)
+    m["store_max_io_bytes"] = min(q, blk)
     mcv = maxctx.get(rec["model"])
     m["max_context_tokens"] = mcv if isinstance(mcv, int) else None
     models.append(m)

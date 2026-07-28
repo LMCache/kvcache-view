@@ -56,7 +56,9 @@
                 margin: 14px 0;
                 overflow-x: auto;
             }
-            .seqsel button {
+            .seqsel button,
+            .ysel button,
+            .phasesel button {
                 background: transparent;
                 border: 1px solid var(--border);
                 color: var(--text-secondary);
@@ -66,7 +68,9 @@
                 cursor: pointer;
                 font-size: 13px;
             }
-            .seqsel button.on {
+            .seqsel button.on,
+            .ysel button.on,
+            .phasesel button.on {
                 background: var(--accent-purple);
                 border-color: var(--accent-purple);
                 color: #fff;
@@ -116,12 +120,44 @@
             .dim {
                 opacity: 0.55;
             }
+            .off {
+                opacity: 0.25;
+            }
             .note {
                 color: var(--text-muted);
                 font-size: 12.5px;
             }
             a {
                 color: var(--accent-cyan);
+            }
+            .legend {
+                margin: 8px 0 2px;
+            }
+            .legend span {
+                display: inline-block;
+                margin: 2px 10px 2px 0;
+                font-size: 12px;
+                cursor: pointer;
+                color: var(--text-secondary);
+                user-select: none;
+            }
+            .legend i {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 5px;
+            }
+            .chartrow {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                align-items: center;
+                margin-bottom: 6px;
+            }
+            .chartrow .lbl {
+                color: var(--text-muted);
+                font-size: 12px;
             }
         </style>
     </head>
@@ -136,6 +172,16 @@
             <div class="seqsel" id="seqsel"></div>
             <div class="card">
                 <table id="tbl"></table>
+            </div>
+            <div class="card">
+                <div class="chartrow">
+                    <span class="lbl">y axis</span>
+                    <span class="ysel" id="ysel"></span>
+                    <span class="lbl">phases</span>
+                    <span class="phasesel" id="phasesel"></span>
+                </div>
+                <div class="legend" id="legend"></div>
+                <div id="chart"></div>
             </div>
             <div class="card note" id="method"></div>
         </div>
@@ -172,6 +218,10 @@
                             load: { p50_ms: 9.364, p99_ms: 10.25, MBps: 894.8 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
                     },
                     {
@@ -189,6 +239,10 @@
                             load: { p50_ms: 18.181, p99_ms: 21.397, MBps: 982.7 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 32768,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 163840,
                     },
                     {
@@ -206,6 +260,10 @@
                             load: { p50_ms: 16.411, p99_ms: 19.508, MBps: 1089.5 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 32768,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
                     },
                     {
@@ -223,6 +281,10 @@
                             load: { p50_ms: 23.152, p99_ms: 30.859, MBps: 1127.9 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 32768,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: null,
                     },
                     {
@@ -240,6 +302,10 @@
                             load: { p50_ms: 24.039, p99_ms: 35.335, MBps: 1137.8 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
                     },
                     {
@@ -257,6 +323,10 @@
                             load: { p50_ms: 32.957, p99_ms: 38.798, MBps: 1010.0 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
                     },
                     {
@@ -274,6 +344,10 @@
                             load: { p50_ms: 35.248, p99_ms: 40.313, MBps: 933.7 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 32768,
                     },
                     {
@@ -291,6 +365,10 @@
                             load: { p50_ms: 34.291, p99_ms: 38.225, MBps: 976.1 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 32768,
                     },
                     {
@@ -308,6 +386,10 @@
                             load: { p50_ms: 39.82, p99_ms: 54.596, MBps: 916.3 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 40960,
                     },
                     {
@@ -325,6 +407,10 @@
                             load: { p50_ms: 53.035, p99_ms: 80.667, MBps: 900.8 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 262144,
                     },
                     {
@@ -342,6 +428,10 @@
                             load: { p50_ms: 62.502, p99_ms: 68.886, MBps: 1036.4 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 196608,
                     },
                     {
@@ -359,6 +449,10 @@
                             load: { p50_ms: 67.813, p99_ms: 76.477, MBps: 985.2 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 40960,
                     },
                     {
@@ -376,6 +470,10 @@
                             load: { p50_ms: 81.349, p99_ms: 89.491, MBps: 1033.1 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
                     },
                     {
@@ -393,6 +491,10 @@
                             load: { p50_ms: 93.745, p99_ms: 100.383, MBps: 1030.8 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 202752,
                     },
                     {
@@ -410,6 +512,10 @@
                             load: { p50_ms: 127.106, p99_ms: 133.421, MBps: 1041.8 },
                         },
                         cmd_bytes: 131072,
+                        load_min_io_bytes: 131072,
+                        load_max_io_bytes: 131072,
+                        store_min_io_bytes: 4096,
+                        store_max_io_bytes: 131072,
                         max_context_tokens: 131072,
                     },
                 ],
@@ -422,10 +528,27 @@
                 [524288, '512K'],
                 [1048576, '1M'],
             ]
+            const YOPTS = [
+                ['block', 'KV block size', (m) => m.kv_block_bytes_256tok],
+                ['minio', 'min IO size', (m) => m.load_min_io_bytes],
+                ['maxio', 'max IO size', (m) => m.load_max_io_bytes],
+                ['ptok', 'bytes / token', (m) => m.kv_bytes_per_token],
+            ]
             let seq = 131072
+            let yopt = 'block'
+            let phases = { write: true, read: true }
+            let hidden = {}
             let doc = null
+            function color(i) {
+                return 'hsl(' + (i * 360) / 15 + ', 72%, 62%)'
+            }
             function fmtKB(b) {
                 return (b / 1024).toFixed(1) + ' KB'
+            }
+            function fmtSize(b) {
+                if (b >= 1073741824) return (b / 1073741824).toFixed(1) + ' GB'
+                if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MiB'
+                return (b / 1024).toFixed(0) + ' KiB'
             }
             function fmtGB(b) {
                 return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : (b / 1048576).toFixed(0) + ' MB'
@@ -438,8 +561,7 @@
                       : ms.toFixed(0) + ' ms'
             }
             function renderSel() {
-                const el = document.getElementById('seqsel')
-                el.innerHTML = SEQS.map(
+                document.getElementById('seqsel').innerHTML = SEQS.map(
                     (s) =>
                         '<button class="' +
                         (s[0] === seq ? 'on' : '') +
@@ -449,13 +571,66 @@
                         s[1] +
                         ' tokens</button>',
                 ).join('')
+                document.getElementById('ysel').innerHTML = YOPTS.map(
+                    (y) =>
+                        '<button class="' +
+                        (y[0] === yopt ? 'on' : '') +
+                        '" onclick="setY(\'' +
+                        y[0] +
+                        '\')">' +
+                        y[1] +
+                        '</button>',
+                ).join('')
+                document.getElementById('phasesel').innerHTML = ['write', 'read']
+                    .map(
+                        (p) =>
+                            '<button class="' +
+                            (phases[p] ? 'on' : '') +
+                            '" onclick="togglePhase(\'' +
+                            p +
+                            '\')">' +
+                            p +
+                            '</button>',
+                    )
+                    .join('')
+                document.getElementById('legend').innerHTML = doc.models
+                    .map(
+                        (m, i) =>
+                            '<span class="' +
+                            (hidden[m.model] ? 'off' : '') +
+                            '" onclick="toggleModel(\'' +
+                            m.model.replace(/'/g, '') +
+                            '\')"><i style="background:' +
+                            color(i) +
+                            '"></i>' +
+                            m.model.split('/')[1] +
+                            '</span>',
+                    )
+                    .join('')
             }
             function setSeq(v) {
                 seq = v
-                renderSel()
-                render()
+                update()
             }
-            function render() {
+            function setY(v) {
+                yopt = v
+                update()
+            }
+            function togglePhase(p) {
+                phases[p] = !phases[p]
+                update()
+            }
+            function toggleModel(name) {
+                const m = doc.models.find((x) => x.model.replace(/'/g, '') === name)
+                if (m) hidden[m.model] = !hidden[m.model]
+                update()
+            }
+            function update() {
+                renderSel()
+                renderTable()
+                renderChart()
+            }
+            function renderTable() {
                 const d = doc
                 const blocks = Math.ceil(seq / 256)
                 const maxKV = Math.max(...d.models.map((m) => m.kv_bytes_per_token * seq))
@@ -464,7 +639,8 @@
                     '<th>KV @ ' +
                     (seq / 1024).toFixed(0) +
                     'K tok</th><th class="barcell"></th>' +
-                    '<th>NVMe cmds</th><th>single-stream load</th>' +
+                    '<th>NVMe cmds</th><th>IO min/max</th>' +
+                    '<th>single-stream load</th>' +
                     '<th>load MB/s</th><th>store MB/s</th>' +
                     '<th>model max ctx</th></tr>'
                 for (const m of d.models) {
@@ -475,9 +651,10 @@
                     const loadMs = (l.p50_ms || 0) * blocks
                     const over = m.max_context_tokens && seq > m.max_context_tokens
                     const mc = m.max_context_tokens ? (m.max_context_tokens / 1024).toFixed(0) + 'K' : '?'
+                    const cls = (over ? 'dim ' : '') + (hidden[m.model] ? 'off' : '')
                     h +=
                         '<tr class="' +
-                        (over ? 'dim' : '') +
+                        cls +
                         '"><td class="model">' +
                         m.model +
                         ' <span class="family">' +
@@ -492,6 +669,10 @@
                         '%"></span></td><td>' +
                         cmds.toLocaleString() +
                         '</td><td>' +
+                        (m.load_min_io_bytes / 1024).toFixed(0) +
+                        'K/' +
+                        (m.load_max_io_bytes / 1024).toFixed(0) +
+                        'K</td><td>' +
                         fmtTime(loadMs) +
                         '</td><td>' +
                         (l.MBps ? l.MBps.toFixed(0) : '-') +
@@ -503,6 +684,137 @@
                         '</td></tr>'
                 }
                 document.getElementById('tbl').innerHTML = h
+            }
+            function renderChart() {
+                const d = doc
+                const yfn = YOPTS.find((y) => y[0] === yopt)[2]
+                const blocks = Math.ceil(seq / 256)
+                const pts = []
+                d.models.forEach((m, i) => {
+                    if (hidden[m.model]) return
+                    const s = m.measured.store || {}
+                    const l = m.measured.load || {}
+                    if (phases.write && s.p50_ms)
+                        pts.push({
+                            m: m,
+                            i: i,
+                            phase: 'write',
+                            t: s.p50_ms * blocks,
+                            y: yfn(m),
+                        })
+                    if (phases.read && l.p50_ms)
+                        pts.push({
+                            m: m,
+                            i: i,
+                            phase: 'read',
+                            t: l.p50_ms * blocks,
+                            y: yfn(m),
+                        })
+                })
+                if (!pts.length) {
+                    document.getElementById('chart').innerHTML = '<div class="note">nothing selected</div>'
+                    return
+                }
+                const W = 1040
+                const H = 360
+                const L = 70
+                const B = 44
+                const T = 14
+                const R = 20
+                const ts = pts.map((p) => p.t)
+                const ys = pts.map((p) => p.y)
+                const tmin = Math.min(...ts) / 1.4
+                const tmax = Math.max(...ts) * 1.4
+                const ymin = Math.min(...ys) / 1.6
+                const ymax = Math.max(...ys) * 1.6
+                const X = (t) =>
+                    L + ((Math.log10(t) - Math.log10(tmin)) / (Math.log10(tmax) - Math.log10(tmin))) * (W - L - R)
+                const Y = (v) =>
+                    H - B - ((Math.log10(v) - Math.log10(ymin)) / (Math.log10(ymax) - Math.log10(ymin))) * (H - T - B)
+                let g = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:900px">'
+                for (let e = Math.ceil(Math.log10(tmin)); e <= Math.floor(Math.log10(tmax)); e++) {
+                    const t = Math.pow(10, e)
+                    g +=
+                        '<line x1="' +
+                        X(t) +
+                        '" y1="' +
+                        T +
+                        '" x2="' +
+                        X(t) +
+                        '" y2="' +
+                        (H - B) +
+                        '" stroke="rgba(95,163,230,0.15)"/>' +
+                        '<text x="' +
+                        X(t) +
+                        '" y="' +
+                        (H - B + 16) +
+                        '" fill="#a5b4e0" font-size="11" text-anchor="middle">' +
+                        fmtTime(t) +
+                        '</text>'
+                }
+                for (let e = Math.ceil(Math.log10(ymin)); e <= Math.floor(Math.log10(ymax)); e++) {
+                    const v = Math.pow(10, e)
+                    g +=
+                        '<line x1="' +
+                        L +
+                        '" y1="' +
+                        Y(v) +
+                        '" x2="' +
+                        (W - R) +
+                        '" y2="' +
+                        Y(v) +
+                        '" stroke="rgba(95,163,230,0.15)"/>' +
+                        '<text x="' +
+                        (L - 6) +
+                        '" y="' +
+                        (Y(v) + 4) +
+                        '" fill="#a5b4e0" font-size="11" text-anchor="end">' +
+                        fmtSize(v) +
+                        '</text>'
+                }
+                g +=
+                    '<text x="' +
+                    (L + (W - L - R) / 2) +
+                    '" y="' +
+                    (H - 6) +
+                    '" fill="#c7d4f8" font-size="12" text-anchor="middle">' +
+                    'single-stream phase time @ ' +
+                    (seq / 1024).toFixed(0) +
+                    'K tokens (log)</text>'
+                for (const p of pts) {
+                    const c = color(p.i)
+                    const fill = p.phase === 'read' ? c : 'none'
+                    g +=
+                        '<circle cx="' +
+                        X(p.t) +
+                        '" cy="' +
+                        Y(p.y) +
+                        '" r="6" fill="' +
+                        fill +
+                        '" stroke="' +
+                        c +
+                        '" stroke-width="2"><title>' +
+                        p.m.model +
+                        ' — ' +
+                        p.phase +
+                        ' phase: ' +
+                        fmtTime(p.t) +
+                        ', ' +
+                        fmtSize(p.y) +
+                        '</title></circle>'
+                }
+                g +=
+                    '<text x="' +
+                    (W - R) +
+                    '" y="' +
+                    (T + 4) +
+                    '" fill="#a5b4e0" font-size="11" text-anchor="end">' +
+                    'hollow = write phase, filled = read phase; click legend ' +
+                    'to toggle models</text></svg>'
+                document.getElementById('chart').innerHTML = g
+            }
+            function renderMethod() {
+                const d = doc
                 document.getElementById('method').innerHTML =
                     '<b>Method.</b> Measured unit: one 256-token KV block ' +
                     '(bfloat16), stored and loaded via ' +
@@ -512,11 +824,15 @@
                     '. Device: ' +
                     d.method.device +
                     '. Sequence costs are exact linear multiples of the ' +
-                    'measured block; <i>single-stream load</i> serializes ' +
-                    'the measured per-block p50 and is the pessimistic ' +
+                    'measured block; <i>single-stream</i> times serialize ' +
+                    'the measured per-block p50 and are the pessimistic ' +
                     'bound — parallel loading saturates the drive instead. ' +
-                    'Dimmed rows: the selected length exceeds the declared ' +
-                    'max_position_embeddings of the model. Data: ' +
+                    'IO min/max: the write phase always includes a 4 KiB ' +
+                    'header command per block; the read phase minimum is ' +
+                    'the block tail when the block does not divide evenly ' +
+                    'into 128 KiB commands. Dimmed rows: the selected ' +
+                    'length exceeds the declared max_position_embeddings ' +
+                    'of the model. Data: ' +
                     '<a href="projections/io/kvio_io_projections.json">' +
                     'kvio_io_projections.json</a>.'
             }
@@ -526,8 +842,8 @@
                     const r = await fetch('projections/io/kvio_io_projections.json')
                     doc = await r.json()
                 }
-                renderSel()
-                render()
+                update()
+                renderMethod()
             }
             load()
         </script>
