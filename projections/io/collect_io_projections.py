@@ -98,6 +98,78 @@ doc = {
         "device": "Micron 7450 (MTFDKBG960TFR 960 GB), shared host -- "
                   "treat measured numbers as representative, not pristine",
     },
+    "transports": [
+        {
+            "name": "Linux kernel: POSIX / io_uring file / io_uring_cmd",
+            "path": "application -> kernel -> NVMe",
+            "wire_quantum": "<= 128 KiB per command on translating-IOMMU "
+                            "hosts (nvme-pci clamps max_hw_sectors to "
+                            "dma_opt_mapping_size = the IOVA rcache range; "
+                            "host-dependent, not a device property)",
+            "status": "measured",
+            "notes": "The per-model table on this page was measured on "
+                     "this path (io_uring file engine, O_DIRECT). Command "
+                     "size sweeps on the same drive: reads scale 2,502 -> "
+                     "3,727 MB/s from 16 K to 128 K at QD 16, writes flat "
+                     "~1.5 GB/s at every size and depth tested.",
+        },
+        {
+            "name": "SPDK (vfio-pci, userspace NVMe driver)",
+            "path": "application -> vfio-mapped device queues",
+            "wire_quantum": "device MDTS (512 KiB on the same Micron 7450 "
+                            "-- 4x the kernel path); vfio maps the memory "
+                            "pool once at registration, so the per-IO "
+                            "DMA-mapping clamp never applies; larger "
+                            "requests are software-split by SPDK",
+            "status": "measured",
+            "notes": "Same drive model, AMD IOMMU enabled, vfio-pci with "
+                     "full translation: identify reports MDTS 512 KiB "
+                     "where the kernel reports 128; 512 KiB wire commands "
+                     "sustain 3,565 MB/s reads (bandwidth-flat from "
+                     "128 K), writes 1,456 MB/s.",
+        },
+        {
+            "name": "cuFile / GPUDirect Storage (NIXL GDS backend)",
+            "path": "GPU <-> NVMe via nvidia-fs through the kernel driver",
+            "wire_quantum": "<= 128 KiB at the device on IOMMU hosts (same "
+                            "kernel clamp); the library adds its own "
+                            "segmentation and bounce-pool behavior above it",
+            "status": "measured (compat path)",
+            "notes": "Single-stream KV-block loads 1.6-1.7 GB/s measured "
+                     "through the generator's cufile/opends engines on a "
+                     "Gen5 drive; GPU-direct p2p path numbers pending.",
+        },
+        {
+            "name": "NIXL XNVME_KV (io_uring_cmd, NVMe-KV namespaces)",
+            "path": "NIXL -> xNVMe -> kernel passthrough -> KV SSD",
+            "wire_quantum": "value size per KV command, bounded by the "
+                            "same kernel limits as passthrough",
+            "status": "attribution measured, throughput pending",
+            "notes": "Traced completely unmodified with per-object "
+                     "attribution (the object key rides in each command); "
+                     "dedicated throughput benchmarking not yet run.",
+        },
+        {
+            "name": "NIXL UCX over NVLink (intra-node GPU <-> GPU)",
+            "path": "GPU memory <-> GPU memory, no storage device",
+            "wire_quantum": "no NVMe command quantum -- NVLink transfer "
+                            "sizes are a different regime entirely",
+            "status": "pending",
+            "notes": "KV movement without storage: different limits, "
+                     "different instrumentation (no NVMe tracer applies).",
+        },
+        {
+            "name": "NIXL UCX over RDMA (inter-node)",
+            "path": "initiator NIC <-> remote node; storage commands, if "
+                    "any, occur on the remote target",
+            "wire_quantum": "RDMA message sizing on the wire; NVMe "
+                            "quanta apply only on the target node",
+            "status": "pending",
+            "notes": "Initiator-side kernel NVMe tracing sees nothing; "
+                     "the join strategy is target-side capture plus NIXL "
+                     "telemetry as the semantic layer.",
+        },
+    ],
     "models": models,
 }
 print(json.dumps(doc, indent=2))

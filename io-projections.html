@@ -205,6 +205,13 @@
                 <div class="legend" id="legend2"></div>
                 <div id="trend"></div>
             </div>
+            <div class="card">
+                <div class="note" style="margin-bottom: 6px">
+                    IO limits are a property of the data path, not the model. The per-model numbers above were measured
+                    on the Linux kernel path; other backends carry different wire limits on identical hardware.
+                </div>
+                <table id="transports"></table>
+            </div>
             <div class="card note" id="method"></div>
         </div>
         <script>
@@ -228,6 +235,54 @@
                         '8 blocks stored then loaded, 3 measured passes after 1 warmup pass, one object in flight (per-object cost, not peak device throughput)',
                     device: 'Micron 7450 (MTFDKBG960TFR 960 GB), shared host -- treat measured numbers as representative, not pristine',
                 },
+                transports: [
+                    {
+                        name: 'Linux kernel: POSIX / io_uring file / io_uring_cmd',
+                        path: 'application -> kernel -> NVMe',
+                        wire_quantum:
+                            '<= 128 KiB per command on translating-IOMMU hosts (nvme-pci clamps max_hw_sectors to dma_opt_mapping_size = the IOVA rcache range; host-dependent, not a device property)',
+                        status: 'measured',
+                        notes: 'The per-model table on this page was measured on this path (io_uring file engine, O_DIRECT). Command size sweeps on the same drive: reads scale 2,502 -> 3,727 MB/s from 16 K to 128 K at QD 16, writes flat ~1.5 GB/s at every size and depth tested.',
+                    },
+                    {
+                        name: 'SPDK (vfio-pci, userspace NVMe driver)',
+                        path: 'application -> vfio-mapped device queues',
+                        wire_quantum:
+                            'device MDTS (512 KiB on the same Micron 7450 -- 4x the kernel path); vfio maps the memory pool once at registration, so the per-IO DMA-mapping clamp never applies; larger requests are software-split by SPDK',
+                        status: 'measured',
+                        notes: 'Same drive model, AMD IOMMU enabled, vfio-pci with full translation: identify reports MDTS 512 KiB where the kernel reports 128; 512 KiB wire commands sustain 3,565 MB/s reads (bandwidth-flat from 128 K), writes 1,456 MB/s.',
+                    },
+                    {
+                        name: 'cuFile / GPUDirect Storage (NIXL GDS backend)',
+                        path: 'GPU <-> NVMe via nvidia-fs through the kernel driver',
+                        wire_quantum:
+                            '<= 128 KiB at the device on IOMMU hosts (same kernel clamp); the library adds its own segmentation and bounce-pool behavior above it',
+                        status: 'measured (compat path)',
+                        notes: "Single-stream KV-block loads 1.6-1.7 GB/s measured through the generator's cufile/opends engines on a Gen5 drive; GPU-direct p2p path numbers pending.",
+                    },
+                    {
+                        name: 'NIXL XNVME_KV (io_uring_cmd, NVMe-KV namespaces)',
+                        path: 'NIXL -> xNVMe -> kernel passthrough -> KV SSD',
+                        wire_quantum: 'value size per KV command, bounded by the same kernel limits as passthrough',
+                        status: 'attribution measured, throughput pending',
+                        notes: 'Traced completely unmodified with per-object attribution (the object key rides in each command); dedicated throughput benchmarking not yet run.',
+                    },
+                    {
+                        name: 'NIXL UCX over NVLink (intra-node GPU <-> GPU)',
+                        path: 'GPU memory <-> GPU memory, no storage device',
+                        wire_quantum:
+                            'no NVMe command quantum -- NVLink transfer sizes are a different regime entirely',
+                        status: 'pending',
+                        notes: 'KV movement without storage: different limits, different instrumentation (no NVMe tracer applies).',
+                    },
+                    {
+                        name: 'NIXL UCX over RDMA (inter-node)',
+                        path: 'initiator NIC <-> remote node; storage commands, if any, occur on the remote target',
+                        wire_quantum: 'RDMA message sizing on the wire; NVMe quanta apply only on the target node',
+                        status: 'pending',
+                        notes: 'Initiator-side kernel NVMe tracing sees nothing; the join strategy is target-side capture plus NIXL telemetry as the semantic layer.',
+                    },
+                ],
                 models: [
                     {
                         model: 'meta-llama/Llama-3.2-1B-Instruct',
@@ -984,6 +1039,32 @@
                     ' by release date (HF repo creation)</text></svg>'
                 document.getElementById('trend').innerHTML = g
             }
+            function renderTransports() {
+                const d = doc
+                let h =
+                    '<tr><th class="model">data path</th>' +
+                    '<th class="model">wire limit</th>' +
+                    '<th class="model">status</th>' +
+                    '<th class="model">measured / notes</th></tr>'
+                for (const t of d.transports || []) {
+                    h +=
+                        '<tr><td class="model" style="white-space:normal">' +
+                        t.name +
+                        '<br><span class="family">' +
+                        t.path +
+                        '</span></td>' +
+                        '<td style="white-space:normal;text-align:left">' +
+                        t.wire_quantum +
+                        '</td>' +
+                        '<td style="text-align:left">' +
+                        (t.status === 'pending' ? '<span class="over">' + t.status + '</span>' : t.status) +
+                        '</td>' +
+                        '<td style="white-space:normal;text-align:left">' +
+                        t.notes +
+                        '</td></tr>'
+                }
+                document.getElementById('transports').innerHTML = h
+            }
             function renderMethod() {
                 const d = doc
                 document.getElementById('method').innerHTML =
@@ -1022,6 +1103,7 @@
                     doc = await r.json()
                 }
                 update()
+                renderTransports()
                 renderMethod()
             }
             load()
