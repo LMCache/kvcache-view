@@ -84,15 +84,15 @@ const CARTRIDGE_BENCHMARKS = {
             id: 'qwen3-8b-longhealth-cas-build',
             validity: 'exploratory',
             provenance: 'knlp CAS reproduction harness, 8x H100 80GB',
-            date: '2026-07-24',
+            date: '2026-07-30',
             model: 'Qwen3-8B',
             dataset: 'LongHealth patient records (patient_01, DLBCL)',
             corpusTokens: null,
             docTokens: 12221,
-            cartridgeTokens: 512,
-            compression: 23.9,
+            cartridgeTokens: 611,
+            compression: 20.0,
             serializedFormat: 'bf16',
-            serializedBytesDoc: 75546893,
+            serializedBytesDoc: 90735203,
             harness: 'knlp research/cartridges_cas (HazyResearch cartridges @ 8cb6823)',
             engine: 'vLLM Qwen3-8B teacher (self-study synth) + FlexQwen3 train/serve path',
             hardware: '8x H100 80GB',
@@ -100,7 +100,7 @@ const CARTRIDGE_BENCHMARKS = {
             selfStudyCostUsd: null,
             otherBuildCostUsd: null,
             requestShape:
-                'baseline prefills ~12221 document + ~131 query tokens; cartridge is a 512-token ' +
+                'baseline prefills ~12221 document + ~131 query tokens; cartridge is a ~611-token ' +
                 'KV prefix + ~131 query tokens; 32 output tokens',
             concurrency: 'single stream (latency microbenchmark; not a concurrent load test)',
             baselineRun: null,
@@ -113,28 +113,28 @@ const CARTRIDGE_BENCHMARKS = {
                 cartridgeP95: 94.8,
             },
             throughputQps: null,
-            qualityMetric: 'LongHealth letter accuracy',
-            qualityBaseline: null,
-            qualityCartridge: null,
+            qualityMetric: 'LongHealth option-match accuracy (thinking-on, temp 0.6, mean of >=3 runs)',
+            qualityBaseline: 0.855,
+            qualityCartridge: 0.50,
             notes:
-                'In-progress CAS (arXiv:2606.04557) reproduction on Qwen3-8B, patient_01 LongHealth ' +
-                'record. Measured: cartridgeTokens (511 trained + 1 frozen sink token), ' +
-                'serializedFormat/serializedBytesDoc on disk (bf16), served document tokens, and a ' +
-                'single-cartridge serving A/B on one H100 (20 queries, single stream): time-to-first-token ' +
-                'drops from 757 ms P50 / 773 ms P95 (baseline re-prefilling the ~12.2K-token document every ' +
-                'query) to 81 ms P50 / 95 ms P95 (cartridge, 512-token KV prefix + query) — a median prefill ' +
-                'saving of 677 ms/query; single-stream decode ~35 tok/s both paths. The cartridge was ' +
-                'self-study-trained against a ~7.7K-token synth-formatted view of the same record. Still null ' +
-                '(benchmark required, never estimated): constructionGpuHours/selfStudyCostUsd await the ' +
-                'running six-patient x 20000-convo self-study synth and training. qualityBaseline/' +
-                'qualityCartridge await a combine-eval on the properly-trained carts: the cartridge used for ' +
-                'this timing A/B is an undertrained smoke cartridge that scores only 0.15 (confirmed by the ' +
-                'canonical combine-eval oracle -- genuinely weak from too few training convos, not an ' +
-                'instrumentation artifact), so it is not recorded as quality; the 20000-convo synth now ' +
-                'running produces the carts to evaluate, and a clean full-context baseline (with an adequate ' +
-                'answer-token budget) is also pending. throughputQps/loadPath await a concurrent load test. ' +
-                'Promote to valid once build cost and quality are measured. This is the 8B build+serving the ' +
-                'invalid 0.6B record could not estimate.',
+                'CAS (arXiv:2606.04557) reproduction on Qwen3-8B over LongHealth. Baselines reproduce: ' +
+                'no-context 0.39 (paper 0.375), full document in context 0.855 (paper 0.874). Cartridge-path ' +
+                'ceiling: an untrained cartridge holding the full document KV, loaded through the cartridge ' +
+                'path, scores 0.86 -- so that path has no positional/serialization loss and a perfect ' +
+                'cartridge tops out at 0.86. A trained single isolated cartridge reaches 0.50 (best 0.58) ' +
+                'against the paper 0.736; the collapse/rescue effect reproduces at 5 cartridges (isolated ' +
+                '0.58 alone -> 0.38 co-loaded; mixed-visibility 0.44 -> 0.46). qualityCartridge here is the ' +
+                'trained single-cartridge accuracy (0.50); qualityBaseline is the full document in context ' +
+                '(0.855). Geometry/bytes are the trained ~611-token cartridge on disk (bf16); the serving ' +
+                'A/B timing was collected with an earlier 512-token cartridge -- the prefill saving is a ' +
+                'memcpy of the KV prefix and is insensitive to the small token-count difference, dropping ' +
+                'TTFT from 757 ms to 81 ms median (677 ms/query) at ~35 tok/s decode both paths. Still null ' +
+                '(measured, never estimated): constructionGpuHours/selfStudyCostUsd (no clean end-to-end ' +
+                'build-cost measurement yet); throughputQps/loadPath (no concurrent load test yet). Stays ' +
+                'exploratory: the trained-cartridge quality is below the paper and below the 0.86 path ' +
+                'ceiling, so it is not a deployable preset. Method, deltas against the public Cartridges ' +
+                'implementation, and where the remaining gap lives are documented at ' +
+                'https://mcgrof.github.io/knlp/cas.html',
         },
     ],
 }
