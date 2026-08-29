@@ -231,6 +231,16 @@
             </div>
             <div class="card">
                 <div class="note" style="margin-bottom: 6px">
+                    <b>The clearest trends.</b> Taking the flagship model of each generation, KV block size holds flat
+                    between attention-architecture changes and steps at each one — down when a family adopts MLA, up
+                    when it leaves. Alongside, what a larger maximum transfer size would be worth: the per-command
+                    energy collapses while the per-byte energy does not move, which is why a sixteenfold cut in
+                    commands is only about a 1.4x cut in energy.
+                </div>
+                <div id="trendhi"></div>
+            </div>
+            <div class="card">
+                <div class="note" style="margin-bottom: 6px">
                     IO limits are a property of the data path, not the model. The per-model numbers above were measured
                     on the Linux kernel path; other backends carry different wire limits on identical hardware.
                 </div>
@@ -3532,6 +3542,7 @@
                 renderChart()
                 renderTrend()
                 renderTrendSplit()
+                renderTrendHi()
             }
             function toggleFamLines() {
                 famLines = !famLines
@@ -3615,6 +3626,7 @@
                 renderChart()
                 renderTrend()
                 renderTrendSplit()
+                renderTrendHi()
             }
             function showTip(ev, el) {
                 const t = document.getElementById('tip')
@@ -4088,6 +4100,132 @@
                 }
                 out += '</div>'
                 document.getElementById('trendsplit').innerHTML = out
+            }
+            // The three clearest family trends: flagship per generation, so a
+            // step is visible rather than buried under same-week variants.
+            const FLAG3 = {
+                DeepSeek: [
+                    ['2024-12-25', 'V3', 17.2, 'mla'],
+                    ['2025-01-20', 'R1', 17.2, 'mla'],
+                    ['2025-08-21', 'V3.1', 17.2, 'mla'],
+                    ['2025-09-29', 'V3.2-Exp', 17.2, 'mla'],
+                    ['2026-04-22', 'V4-Pro', 30.5, 'gqa_head_dim'],
+                    ['2026-08-13', 'V4-Pro-0813', 30.5, 'gqa_head_dim'],
+                ],
+                GLM: [
+                    ['2025-07-20', 'GLM-4.5', 92.0, 'gqa_head_dim'],
+                    ['2025-09-29', 'GLM-4.6', 92.0, 'gqa_head_dim'],
+                    ['2026-02-11', 'GLM-5', 21.9, 'mla'],
+                    ['2026-04-03', 'GLM-5.1', 21.9, 'mla'],
+                    ['2026-06-16', 'GLM-5.2', 21.9, 'mla'],
+                    ['2026-08-25', 'GLM-5.3', 21.9, 'mla'],
+                ],
+                'Ling / Ring': [
+                    ['2025-10-02', 'Ling-1T', 80.0, 'default'],
+                    ['2026-02-10', 'Ring-2.5-1T', 22.5, 'mla'],
+                    ['2026-04-29', 'Ling-2.6-1T', 22.5, 'mla'],
+                    ['2026-08-02', 'Ling-3.0-flash', 11.8, 'mla'],
+                ],
+            }
+            const FLAG3COL = { DeepSeek: '#5fe0a0', GLM: '#f0a35e', 'Ling / Ring': '#c98bf0' }
+            function renderTrendHi() {
+                const W = 1040
+                const H = 300
+                const L = 70
+                const B = 40
+                const T = 30
+                const R = 20
+                const all = []
+                for (const k of Object.keys(FLAG3)) for (const r of FLAG3[k]) all.push(r)
+                const ts = all.map((r) => new Date(r[0]).getTime())
+                const PAD = 7889400000
+                const tmin = Math.min(...ts) - PAD
+                const tmax = Math.max(...ts) + PAD
+                const ymin = 8
+                const ymax = 200
+                const X = (t) => L + ((t - tmin) / (tmax - tmin)) * (W - L - R)
+                const Y = (v) =>
+                    H - B -
+                    ((Math.log10(v) - Math.log10(ymin)) /
+                        (Math.log10(ymax) - Math.log10(ymin))) * (H - T - B)
+                let g = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:900px">'
+                for (const v of [10, 20, 50, 100, 200]) {
+                    g +=
+                        '<line x1="' + L + '" y1="' + Y(v) + '" x2="' + (W - R) + '" y2="' + Y(v) +
+                        '" stroke="rgba(95,163,230,0.14)"/><text x="' + (L - 6) + '" y="' + (Y(v) + 4) +
+                        '" fill="#8fa2c8" font-size="11" text-anchor="end">' + v + ' MiB</text>'
+                }
+                for (const yr of [2025, 2026, 2027]) {
+                    const tt = new Date(yr, 0, 1).getTime()
+                    if (tt < tmin || tt > tmax) continue
+                    g +=
+                        '<line x1="' + X(tt) + '" y1="' + T + '" x2="' + X(tt) + '" y2="' + (H - B) +
+                        '" stroke="rgba(95,163,230,0.22)"/><text x="' + X(tt) + '" y="' + (H - B + 15) +
+                        '" fill="#8fa2c8" font-size="11" text-anchor="middle">' + yr + '</text>'
+                }
+                for (const k of Object.keys(FLAG3)) {
+                    const ser = FLAG3[k]
+                    let dpath = ''
+                    ser.forEach((r, j) => {
+                        const x = X(new Date(r[0]).getTime())
+                        const y = Y(r[2])
+                        if (!j) dpath = 'M' + x.toFixed(1) + ' ' + y.toFixed(1)
+                        else {
+                            const px = X(new Date(ser[j - 1][0]).getTime())
+                            dpath += ' L' + x.toFixed(1) + ' ' + Y(ser[j - 1][2]).toFixed(1) +
+                                     ' L' + x.toFixed(1) + ' ' + y.toFixed(1)
+                        }
+                    })
+                    g += '<path d="' + dpath + '" fill="none" stroke="' + FLAG3COL[k] + '" stroke-width="2.6"/>'
+                    for (const r of ser) {
+                        const lbl = k + ' ' + r[1] + ' (' + r[0] + ', ' + r[3] + '): ' + r[2] + ' MiB'
+                        g +=
+                            '<circle cx="' + X(new Date(r[0]).getTime()) + '" cy="' + Y(r[2]) +
+                            '" r="6" fill="' + FLAG3COL[k] + '" data-label="' + lbl +
+                            '" onmousemove="showTip(event,this)" onmouseout="hideTip()"><title>' +
+                            lbl + '</title></circle>'
+                    }
+                    const last = ser[ser.length - 1]
+                    g +=
+                        '<text x="' + (X(new Date(last[0]).getTime()) + 10) + '" y="' + (Y(last[2]) + 4) +
+                        '" fill="' + FLAG3COL[k] + '" font-size="12" font-weight="600">' + k + '</text>'
+                }
+                g += '</svg>'
+                // energy decomposition across MDTS for a 30.5 MiB block
+                const nb = 30.5 * 1048576
+                const W2 = 1040
+                const H2 = 250
+                let g2 = '<svg width="100%" viewBox="0 0 ' + W2 + ' ' + H2 + '" style="min-width:900px">'
+                const tot0 = projEnergy(nb, 131072).mj
+                const bw = 90
+                MDTS.forEach((mv, i) => {
+                    const e = projEnergy(nb, mv)
+                    const cmdPart = e.cmds * E_PER_CMD_MJ
+                    const bytePart = e.mj - cmdPart
+                    const x = L + 40 + i * 170
+                    const scale = (H2 - 60) / tot0
+                    const yb = H2 - 34 - bytePart * scale
+                    const yc = yb - cmdPart * scale
+                    g2 +=
+                        '<rect x="' + x + '" y="' + yb + '" width="' + bw + '" height="' +
+                        bytePart * scale + '" fill="#6b7ba8"/>' +
+                        '<rect x="' + x + '" y="' + yc + '" width="' + bw + '" height="' +
+                        cmdPart * scale + '" fill="#5fe0a0"/>' +
+                        '<text x="' + (x + bw / 2) + '" y="' + (yc - 6) +
+                        '" fill="#dbe6ff" font-size="12" font-weight="600" text-anchor="middle">' +
+                        e.mj.toFixed(0) + ' mJ</text>' +
+                        '<text x="' + (x + bw / 2) + '" y="' + (H2 - 16) +
+                        '" fill="#8fa2c8" font-size="11" text-anchor="middle">' + mdtsLabel(mv) + '</text>' +
+                        '<text x="' + (x + bw / 2) + '" y="' + (H2 - 3) +
+                        '" fill="#8fa2c8" font-size="10" text-anchor="middle">' +
+                        e.cmds.toLocaleString() + ' cmds</text>'
+                })
+                g2 +=
+                    '<text x="' + (W2 - R) + '" y="18" fill="#5fe0a0" font-size="12" ' +
+                    'font-weight="600" text-anchor="end">per-command energy</text>' +
+                    '<text x="' + (W2 - R) + '" y="34" fill="#8fa2c8" font-size="12" ' +
+                    'text-anchor="end">per-byte energy — unchanged by MDTS</text></svg>'
+                document.getElementById('trendhi').innerHTML = g + g2
             }
             function renderTransports() {
                 const d = doc
