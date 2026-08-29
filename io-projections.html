@@ -185,6 +185,14 @@
             </div>
             <div class="seqsel" id="seqsel"></div>
             <div class="card">
+                <div class="note" style="margin-bottom: 6px">
+                    Projected NVMe commands and energy to restore this much KV, at each maximum transfer size a drive
+                    might allow. Energy is modelled as a per-command term plus a per-byte term, both fitted to
+                    measurement: restoring a KV block was measured at 128 KiB and at 2 MiB commands for 13 models on a
+                    Samsung PM9A3, and solving those two points per model splits the cost. Medians across the 13 are
+                    <b>0.038 mJ per NVMe command</b> and <b>690 mJ per GiB moved</b>. The multiplier is the saving
+                    against 128 KiB. CPU-package energy only — it does not include the SSD.
+                </div>
                 <table id="tbl"></table>
             </div>
             <div class="card">
@@ -3618,28 +3626,40 @@
             function hideTip() {
                 document.getElementById('tip').style.display = 'none'
             }
+            // Energy model, fitted to measurements rather than assumed.
+            // Restoring a KV block was measured at 128 KiB and at 2 MiB
+            // commands for 13 models on a Samsung PM9A3; solving those two
+            // points per model splits the cost into a per-command term and a
+            // per-byte term. Medians across the 13:
+            const E_PER_CMD_MJ = 0.038 // mJ per NVMe command
+            const E_PER_GIB_MJ = 689.7 // mJ per GiB actually moved
+            const MDTS = [131072, 262144, 524288, 1048576, 2097152]
+            function mdtsLabel(v) {
+                return v >= 1048576 ? v / 1048576 + ' MiB' : v / 1024 + ' KiB'
+            }
+            function projEnergy(bytes, mdts) {
+                const cmds = Math.ceil(bytes / mdts)
+                return {
+                    cmds: cmds,
+                    mj: cmds * E_PER_CMD_MJ + (bytes / 1073741824) * E_PER_GIB_MJ,
+                }
+            }
             function renderTable() {
                 const d = doc
-                const blocks = Math.ceil(seq / 256)
                 const maxKV = Math.max(...d.models.map((m) => m.kv_bytes_per_token * seq))
                 let h =
                     '<tr><th class="model">model</th><th>bytes / token</th>' +
                     '<th>KV @ ' +
                     (seq / 1024).toFixed(0) +
                     'K tok</th><th class="barcell"></th>' +
-                    '<th>NVMe cmds</th>' +
-                    '<th>single-stream load</th>' +
-                    '<th>load MB/s</th><th>store MB/s</th>' +
-                    '<th>model max ctx</th></tr>'
+                    MDTS.map((v) => '<th>' + mdtsLabel(v) + '</th>').join('') +
+                    '</tr>'
                 for (const m of d.models) {
-                    const s = (m.measured || {}).store || {}
-                    const l = (m.measured || {}).load || {}
+                    if (hiddenFam[m.family]) continue
                     const total = m.kv_bytes_per_token * seq
-                    const cmds = (m.load_cmds_per_block || 0) * blocks
-                    const loadMs = (l.p50_ms || 0) * blocks
                     const over = m.max_context_tokens && seq > m.max_context_tokens
-                    const mc = m.max_context_tokens ? (m.max_context_tokens / 1024).toFixed(0) + 'K' : '?'
                     const cls = (over ? 'dim ' : '') + (hidden[m.model] ? 'off' : '')
+                    const base = projEnergy(total, 131072)
                     h +=
                         '<tr class="' +
                         cls +
@@ -3647,25 +3667,31 @@
                         m.model +
                         ' <span class="family">' +
                         (m.family || '') +
-                        '</span></td>' +
+                        '</span>' +
+                        (over ? ' <span class="over">&gt; ctx</span>' : '') +
+                        '</td>' +
                         '<td>' +
                         fmtKB(m.kv_bytes_per_token) +
                         '</td><td>' +
                         fmtGB(total) +
                         '</td><td class="barcell"><span class="bar" style="width:' +
                         (100 * total) / maxKV +
-                        '%"></span></td><td>' +
-                        cmds.toLocaleString() +
-                        '</td><td>' +
-                        fmtTime(loadMs) +
-                        '</td><td>' +
-                        (l.MBps ? l.MBps.toFixed(0) : '-') +
-                        '</td><td>' +
-                        (s.MBps ? s.MBps.toFixed(0) : '-') +
-                        '</td><td>' +
-                        mc +
-                        (over ? ' <span class="over">&lt; selected</span>' : '') +
-                        '</td></tr>'
+                        '%"></span></td>' +
+                        MDTS.map((v) => {
+                            const e = projEnergy(total, v)
+                            const save = base.mj / e.mj
+                            return (
+                                '<td>' +
+                                e.cmds.toLocaleString() +
+                                ' cmds<br /><span class="sub">' +
+                                (e.mj >= 1000
+                                    ? (e.mj / 1000).toFixed(1) + ' J'
+                                    : e.mj.toFixed(0) + ' mJ') +
+                                (v === 131072 ? '' : ' &middot; ' + save.toFixed(2) + 'x') +
+                                '</span></td>'
+                            )
+                        }).join('') +
+                        '</tr>'
                 }
                 document.getElementById('tbl').innerHTML = h
             }
