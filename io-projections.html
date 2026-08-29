@@ -211,6 +211,12 @@
                     <span class="ysel" id="linesel"></span>
                 </div>
                 <div id="trend"></div>
+                <div class="note" style="margin: 14px 0 6px">
+                    The same data split by architecture, so each family can be read on its own. Within a panel the
+                    colour is the vendor and the line joins that vendor's releases in order. Same axes in all four
+                    panels, so they can be compared directly.
+                </div>
+                <div id="trendsplit"></div>
             </div>
             <div class="card">
                 <div class="note" style="margin-bottom: 6px">
@@ -3585,6 +3591,7 @@
                 renderTable()
                 renderChart()
                 renderTrend()
+                renderTrendSplit()
             }
             function showTip(ev, el) {
                 const t = document.getElementById('tip')
@@ -3935,6 +3942,136 @@
                     ylab +
                     ' by release date (HF repo creation)</text></svg>'
                 document.getElementById('trend').innerHTML = g
+            }
+            // A stable colour per vendor, spread by the golden angle so
+            // neighbouring vendors stay distinguishable however many there are.
+            const ORGHUE = {}
+            function orgColor(org) {
+                if (!(org in ORGHUE)) {
+                    ORGHUE[org] = (Object.keys(ORGHUE).length * 137.508) % 360
+                }
+                return 'hsl(' + ORGHUE[org].toFixed(1) + ', 68%, 62%)'
+            }
+            function renderTrendSplit() {
+                const d = doc
+                const yfn = YOPTS.find((y) => y[0] === yopt)[2]
+                const pts = d.models
+                    .filter((m) => !hidden[m.model] && m.released)
+                    .map((m) => ({ m: m, t: new Date(m.released).getTime(), y: yfn(m) }))
+                if (!pts.length) {
+                    document.getElementById('trendsplit').innerHTML =
+                        '<div class="note">nothing selected</div>'
+                    return
+                }
+                // Shared axes across panels so they can be compared directly.
+                const PAD = 5259600000
+                const tmin = Math.min(...pts.map((p) => p.t)) - PAD
+                const tmax = Math.max(...pts.map((p) => p.t)) + PAD
+                let ymin = Math.min(...pts.map((p) => p.y)) / 1.6
+                const ymax = Math.max(...pts.map((p) => p.y)) * 1.6
+                if (yopt === 'block') ymin = Math.min(ymin, 131072 / 1.6)
+                const W = 520
+                const H = 260
+                const L = 62
+                const B = 34
+                const T = 26
+                const R = 12
+                const X = (t) => L + ((t - tmin) / (tmax - tmin)) * (W - L - R)
+                const Y = (v) =>
+                    H - B -
+                    ((Math.log10(v) - Math.log10(ymin)) /
+                        (Math.log10(ymax) - Math.log10(ymin))) *
+                        (H - T - B)
+                let out =
+                    '<div style="display:grid;gap:12px;' +
+                    'grid-template-columns:repeat(auto-fit,minmax(330px,1fr))">'
+                for (const [fkey, flabel, fcol] of FAMS) {
+                    const fp = pts.filter((p) => (p.m.family || 'default') === fkey)
+                    let g =
+                        '<svg width="100%" viewBox="0 0 ' + W + ' ' + H +
+                        '" preserveAspectRatio="xMidYMid meet" style="display:block">'
+                    // gridlines
+                    for (
+                        let e = Math.ceil(Math.log10(ymin));
+                        e <= Math.floor(Math.log10(ymax));
+                        e++
+                    ) {
+                        const v = Math.pow(10, e)
+                        g +=
+                            '<line x1="' + L + '" y1="' + Y(v) + '" x2="' + (W - R) +
+                            '" y2="' + Y(v) + '" stroke="rgba(95,163,230,0.13)"/>' +
+                            '<text x="' + (L - 5) + '" y="' + (Y(v) + 4) +
+                            '" fill="#8fa2c8" font-size="9" text-anchor="end">' +
+                            fmtSize(v) + '</text>'
+                    }
+                    const y0 = new Date(tmin).getFullYear()
+                    const y1 = new Date(tmax).getFullYear()
+                    for (let yr = y0; yr <= y1 + 1; yr++) {
+                        const tt = new Date(yr, 0, 1).getTime()
+                        if (tt < tmin || tt > tmax) continue
+                        g +=
+                            '<line x1="' + X(tt) + '" y1="' + T + '" x2="' + X(tt) +
+                            '" y2="' + (H - B) + '" stroke="rgba(95,163,230,0.2)"/>' +
+                            '<text x="' + X(tt) + '" y="' + (H - B + 14) +
+                            '" fill="#8fa2c8" font-size="9" text-anchor="middle">' +
+                            yr + '</text>'
+                    }
+                    if (yopt === 'block' && Y(131072) < H - B && Y(131072) > T) {
+                        g +=
+                            '<line x1="' + L + '" y1="' + Y(131072) + '" x2="' + (W - R) +
+                            '" y2="' + Y(131072) +
+                            '" stroke="#f0736b" stroke-width="1.6" stroke-dasharray="6 4"/>'
+                    }
+                    // one line per vendor, in release order
+                    const byOrg = {}
+                    for (const p of fp) {
+                        const org = p.m.model.split('/')[0]
+                        ;(byOrg[org] = byOrg[org] || []).push(p)
+                    }
+                    for (const org of Object.keys(byOrg)) {
+                        const rows = byOrg[org].slice().sort((a, b) => a.t - b.t)
+                        if (rows.length > 1) {
+                            const pth = rows
+                                .map(
+                                    (p, j) =>
+                                        (j ? 'L' : 'M') + X(p.t).toFixed(1) + ' ' +
+                                        Y(p.y).toFixed(1)
+                                )
+                                .join(' ')
+                            g +=
+                                '<path d="' + pth + '" fill="none" stroke="' +
+                                orgColor(org) + '" stroke-width="1.5" stroke-opacity="0.75"/>'
+                        }
+                        for (const p of rows) {
+                            const lbl =
+                                p.m.model + ' (' + p.m.released + '): ' + fmtSize(p.y)
+                            g +=
+                                '<circle cx="' + X(p.t) + '" cy="' + Y(p.y) +
+                                '" r="5" fill="' + orgColor(org) +
+                                '" fill-opacity="0.9" data-label="' + lbl +
+                                '" onmousemove="showTip(event,this)" onmouseout="hideTip()">' +
+                                '<title>' + lbl + '</title></circle>'
+                        }
+                    }
+                    g +=
+                        '<text x="' + L + '" y="' + (T - 10) + '" fill="' + fcol +
+                        '" font-size="12" font-weight="600">' + flabel +
+                        '  (n=' + fp.length + ')</text></svg>'
+                    const orgs = Object.keys(byOrg).sort()
+                    const leg = orgs
+                        .map(
+                            (o) =>
+                                '<span class="opt" style="border-color:' + orgColor(o) +
+                                ';color:' + orgColor(o) + '">' + o + '</span>'
+                        )
+                        .join('')
+                    out +=
+                        '<div style="min-width:0">' + g +
+                        '<div class="legend" style="margin-top:2px;font-size:10px">' +
+                        leg + '</div></div>'
+                }
+                out += '</div>'
+                document.getElementById('trendsplit').innerHTML = out
             }
             function renderTransports() {
                 const d = doc
