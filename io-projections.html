@@ -753,8 +753,8 @@
                     '<th>load MB/s</th><th>store MB/s</th>' +
                     '<th>model max ctx</th></tr>'
                 for (const m of d.models) {
-                    const s = m.measured.store || {}
-                    const l = m.measured.load || {}
+                    const s = (m.measured || {}).store || {}
+                    const l = (m.measured || {}).load || {}
                     const total = m.kv_bytes_per_token * seq
                     const cmds = (m.load_cmds_per_block || 0) * blocks
                     const loadMs = (l.p50_ms || 0) * blocks
@@ -801,8 +801,8 @@
                 const pts = []
                 d.models.forEach((m, i) => {
                     if (hidden[m.model]) return
-                    const s = m.measured.store || {}
-                    const l = m.measured.load || {}
+                    const s = (m.measured || {}).store || {}
+                    const l = (m.measured || {}).load || {}
                     if (phases.write && s.p50_ms)
                         pts.push({
                             m: m,
@@ -832,8 +832,8 @@
                 const R = 20
                 const allPts = []
                 d.models.forEach((m) => {
-                    const s = m.measured.store || {}
-                    const l = m.measured.load || {}
+                    const s = (m.measured || {}).store || {}
+                    const l = (m.measured || {}).load || {}
                     if (s.p50_ms) allPts.push({ t: s.p50_ms * blocks, y: yfn(m) })
                     if (l.p50_ms) allPts.push({ t: l.p50_ms * blocks, y: yfn(m) })
                 })
