@@ -213,8 +213,11 @@
                 <div id="trend"></div>
                 <div class="note" style="margin: 14px 0 6px">
                     The same data split by architecture, so each family can be read on its own. Within a panel the
-                    colour is the vendor and the line joins that vendor's releases in order. Same axes in all four
-                    panels, so they can be compared directly.
+                    colour is the vendor and the line joins that vendor's releases in order. Same axes in every panel,
+                    so they can be compared directly. Click an architecture above to hide it.
+                    <br /><b>For scale:</b> stock Linux issues NVMe commands of at most 128 KiB, because nvme-pci
+                    folds the DMA-optimal mapping size into its transfer limit. Every model on this page is far above
+                    that, so a KV block is always hundreds to thousands of commands.
                 </div>
                 <div id="trendsplit"></div>
             </div>
@@ -3451,8 +3454,6 @@
             ]
             const YOPTS = [
                 ['block', 'KV block size', (m) => m.kv_block_bytes_256tok],
-                ['minio', 'min IO size', (m) => m.load_min_io_bytes],
-                ['maxio', 'max IO size', (m) => m.load_max_io_bytes],
                 ['ptok', 'bytes / token', (m) => m.kv_bytes_per_token],
             ]
             let seq = 131072
@@ -3460,6 +3461,7 @@
             let phases = { write: true, read: true }
             let hidden = {}
             let famLines = true
+            let hiddenFam = {}
             let doc = null
             const FAMS = [
                 ['mla', 'MLA (latent KV)', '#5fe0a0'],
@@ -3495,11 +3497,17 @@
             function renderFamSel() {
                 document.getElementById('famsel').innerHTML = FAMS.map(
                     (f) =>
-                        '<span class="opt" style="border-color:' +
+                        '<span class="opt ' +
+                        (hiddenFam[f[0]] ? 'off' : '') +
+                        '" style="border-color:' +
                         f[2] +
                         ';color:' +
                         f[2] +
-                        '">' +
+                        ';opacity:' +
+                        (hiddenFam[f[0]] ? '0.35' : '1') +
+                        '" onclick="toggleFam(\'' +
+                        f[0] +
+                        '\')">' +
                         f[1] +
                         '</span>'
                 ).join('')
@@ -3509,6 +3517,13 @@
                     '" onclick="toggleFamLines()">' +
                     (famLines ? 'on' : 'off') +
                     '</span>'
+            }
+            function toggleFam(f) {
+                hiddenFam[f] = !hiddenFam[f]
+                renderFamSel()
+                renderChart()
+                renderTrend()
+                renderTrendSplit()
             }
             function toggleFamLines() {
                 famLines = !famLines
@@ -3612,7 +3627,7 @@
                     '<th>KV @ ' +
                     (seq / 1024).toFixed(0) +
                     'K tok</th><th class="barcell"></th>' +
-                    '<th>NVMe cmds</th><th>IO min/max</th>' +
+                    '<th>NVMe cmds</th>' +
                     '<th>single-stream load</th>' +
                     '<th>load MB/s</th><th>store MB/s</th>' +
                     '<th>model max ctx</th></tr>'
@@ -3642,10 +3657,6 @@
                         '%"></span></td><td>' +
                         cmds.toLocaleString() +
                         '</td><td>' +
-                        (m.load_min_io_bytes / 1024).toFixed(0) +
-                        'K/' +
-                        (m.load_max_io_bytes / 1024).toFixed(0) +
-                        'K</td><td>' +
                         fmtTime(loadMs) +
                         '</td><td>' +
                         (l.MBps ? l.MBps.toFixed(0) : '-') +
@@ -3797,7 +3808,7 @@
                 const ylab = YOPTS.find((y) => y[0] === yopt)[1]
                 const pts = []
                 d.models.forEach((m, i) => {
-                    if (hidden[m.model] || !m.released) return
+                    if (hidden[m.model] || hiddenFam[m.family] || !m.released) return
                     pts.push({
                         m: m,
                         i: i,
@@ -3822,9 +3833,6 @@
                 const tmax = Math.max(...allT) + PAD
                 let ymin = Math.min(...allY) / 1.6
                 const ymax = Math.max(...allY) * 1.6
-                // Keep the 128 KiB command size on screen: the whole point of
-                // this chart is how far above it every model sits.
-                if (yopt === 'block') ymin = Math.min(ymin, 131072 / 1.6)
                 const X = (t) => L + ((t - tmin) / (tmax - tmin)) * (W - L - R)
                 const Y = (v) =>
                     H - B - ((Math.log10(v) - Math.log10(ymin)) / (Math.log10(ymax) - Math.log10(ymin))) * (H - T - B)
@@ -3906,16 +3914,6 @@
                             '" fill="none" stroke="rgba(165,180,224,0.45)" stroke-width="1.6"/>'
                     }
                 }
-                // 128 KiB: the command size stock Linux actually issues.
-                if (yopt === 'block' && Y(131072) > T && Y(131072) < H - B) {
-                    g +=
-                        '<line x1="' + L + '" y1="' + Y(131072) + '" x2="' + (W - R) +
-                        '" y2="' + Y(131072) + '" stroke="#f0736b" stroke-width="2" ' +
-                        'stroke-dasharray="7 5"/>' +
-                        '<text x="' + (L + 8) + '" y="' + (Y(131072) - 6) +
-                        '" fill="#f0736b" font-size="11" font-weight="600">' +
-                        '128 KiB — what stock Linux asks the drive for</text>'
-                }
                 for (const p of pts) {
                     const lbl =
                         p.m.model + ' (' + p.m.released + ', ' + (p.m.family || '?') + '): ' + fmtSize(p.y)
@@ -3956,7 +3954,7 @@
                 const d = doc
                 const yfn = YOPTS.find((y) => y[0] === yopt)[2]
                 const pts = d.models
-                    .filter((m) => !hidden[m.model] && m.released)
+                    .filter((m) => !hidden[m.model] && !hiddenFam[m.family] && m.released)
                     .map((m) => ({ m: m, t: new Date(m.released).getTime(), y: yfn(m) }))
                 if (!pts.length) {
                     document.getElementById('trendsplit').innerHTML =
@@ -3969,23 +3967,21 @@
                 const tmax = Math.max(...pts.map((p) => p.t)) + PAD
                 let ymin = Math.min(...pts.map((p) => p.y)) / 1.6
                 const ymax = Math.max(...pts.map((p) => p.y)) * 1.6
-                if (yopt === 'block') ymin = Math.min(ymin, 131072 / 1.6)
-                const W = 520
-                const H = 260
-                const L = 62
-                const B = 34
-                const T = 26
-                const R = 12
+                const W = 1040
+                const H = 320
+                const L = 70
+                const B = 38
+                const T = 28
+                const R = 20
                 const X = (t) => L + ((t - tmin) / (tmax - tmin)) * (W - L - R)
                 const Y = (v) =>
                     H - B -
                     ((Math.log10(v) - Math.log10(ymin)) /
                         (Math.log10(ymax) - Math.log10(ymin))) *
                         (H - T - B)
-                let out =
-                    '<div style="display:grid;gap:12px;' +
-                    'grid-template-columns:repeat(auto-fit,minmax(330px,1fr))">'
+                let out = '<div style="display:flex;flex-direction:column;gap:18px">'
                 for (const [fkey, flabel, fcol] of FAMS) {
+                    if (hiddenFam[fkey]) continue
                     const fp = pts.filter((p) => (p.m.family || 'default') === fkey)
                     let g =
                         '<svg width="100%" viewBox="0 0 ' + W + ' ' + H +
@@ -4001,7 +3997,7 @@
                             '<line x1="' + L + '" y1="' + Y(v) + '" x2="' + (W - R) +
                             '" y2="' + Y(v) + '" stroke="rgba(95,163,230,0.13)"/>' +
                             '<text x="' + (L - 5) + '" y="' + (Y(v) + 4) +
-                            '" fill="#8fa2c8" font-size="9" text-anchor="end">' +
+                            '" fill="#8fa2c8" font-size="11" text-anchor="end">' +
                             fmtSize(v) + '</text>'
                     }
                     const y0 = new Date(tmin).getFullYear()
@@ -4013,14 +4009,8 @@
                             '<line x1="' + X(tt) + '" y1="' + T + '" x2="' + X(tt) +
                             '" y2="' + (H - B) + '" stroke="rgba(95,163,230,0.2)"/>' +
                             '<text x="' + X(tt) + '" y="' + (H - B + 14) +
-                            '" fill="#8fa2c8" font-size="9" text-anchor="middle">' +
+                            '" fill="#8fa2c8" font-size="11" text-anchor="middle">' +
                             yr + '</text>'
-                    }
-                    if (yopt === 'block' && Y(131072) < H - B && Y(131072) > T) {
-                        g +=
-                            '<line x1="' + L + '" y1="' + Y(131072) + '" x2="' + (W - R) +
-                            '" y2="' + Y(131072) +
-                            '" stroke="#f0736b" stroke-width="1.6" stroke-dasharray="6 4"/>'
                     }
                     // one line per vendor, in release order
                     const byOrg = {}
@@ -4047,7 +4037,7 @@
                                 p.m.model + ' (' + p.m.released + '): ' + fmtSize(p.y)
                             g +=
                                 '<circle cx="' + X(p.t) + '" cy="' + Y(p.y) +
-                                '" r="5" fill="' + orgColor(org) +
+                                '" r="6" fill="' + orgColor(org) +
                                 '" fill-opacity="0.9" data-label="' + lbl +
                                 '" onmousemove="showTip(event,this)" onmouseout="hideTip()">' +
                                 '<title>' + lbl + '</title></circle>'
@@ -4055,7 +4045,7 @@
                     }
                     g +=
                         '<text x="' + L + '" y="' + (T - 10) + '" fill="' + fcol +
-                        '" font-size="12" font-weight="600">' + flabel +
+                        '" font-size="14" font-weight="600">' + flabel +
                         '  (n=' + fp.length + ')</text></svg>'
                     const orgs = Object.keys(byOrg).sort()
                     const leg = orgs
@@ -4067,8 +4057,8 @@
                         .join('')
                     out +=
                         '<div style="min-width:0">' + g +
-                        '<div class="legend" style="margin-top:2px;font-size:10px">' +
-                        leg + '</div></div>'
+                        '<div class="legend" style="margin-top:2px">' + leg +
+                        '</div></div>'
                 }
                 out += '</div>'
                 document.getElementById('trendsplit').innerHTML = out
@@ -4115,10 +4105,7 @@
                     'measured block; <i>single-stream</i> times serialize ' +
                     'the measured per-block p50 and are the pessimistic ' +
                     'bound — parallel loading saturates the drive instead. ' +
-                    'IO min/max: the write phase always includes a 4 KiB ' +
-                    'header command per block; the read phase minimum is ' +
-                    'the block tail when the block does not divide evenly ' +
-                    'into 128 KiB commands. Dimmed rows: the selected ' +
+                    'Dimmed rows: the selected ' +
                     'length exceeds the declared max_position_embeddings ' +
                     'of the model. Capture and analysis methodology: the ' +
                     '<a href="' +
